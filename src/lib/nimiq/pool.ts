@@ -67,6 +67,11 @@ export async function getPoolStatus(): Promise<PoolStatus> {
   const blockSeconds = policy.blockSeparationTime / 1000
   const eta = (target: number): BlockEta => ({ block: target, inSeconds: Math.max(0, (target - block) * blockSeconds) })
   // Election blocks sit on multiples of blocksPerEpoch (genesis is one too).
+  const releaseBlock = (s: ChainStaker | null, blocksPerEpoch: number) => {
+    if (!s?.inactiveBalance || !s.inactiveFrom) return null
+    // The public RPC omits inactiveRelease; this is Policy.blockAfterCollateralLockup(inactiveFrom).
+    return eta(s.inactiveRelease ?? s.inactiveFrom + blocksPerEpoch + 1)
+  }
   const nextElection = Math.ceil((block + 1) / policy.blocksPerEpoch) * policy.blocksPerEpoch
 
   return {
@@ -79,7 +84,7 @@ export async function getPoolStatus(): Promise<PoolStatus> {
     minimumStake: policy.minimumStake,
     epochSeconds: policy.blocksPerEpoch * blockSeconds,
     nextElection: eta(nextElection),
-    inactiveRelease: staker?.inactiveBalance && staker.inactiveRelease ? eta(staker.inactiveRelease) : null,
+    inactiveRelease: releaseBlock(staker, policy.blocksPerEpoch),
     log: log.slice(-20).reverse(),
   }
 }

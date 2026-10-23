@@ -43,6 +43,15 @@ async function rpc(method, params = []) {
   return body.result.data
 }
 
+/**
+ * First block the inactive balance can be retired at. The public RPC omits
+ * `inactiveRelease`, so fall back to the same rule @nimiq/core uses.
+ */
+function releaseBlock(staker) {
+  if (!staker?.inactiveBalance || !staker.inactiveFrom) return null
+  return staker.inactiveRelease ?? Nimiq.Policy.blockAfterCollateralLockup(staker.inactiveFrom)
+}
+
 async function getStaker(address) {
   try {
     return await rpc('getStakerByAddress', [address])
@@ -154,7 +163,8 @@ const commands = {
       console.log(`Inactive   ${nim(staker.inactiveBalance)}`)
       if (staker.inactiveBalance) {
         console.log(`  inactive from block ${staker.inactiveFrom} (${duration(secs(staker.inactiveFrom))})`)
-        console.log(`  released at  block ${staker.inactiveRelease} (${duration(secs(staker.inactiveRelease))})`)
+        const release = releaseBlock(staker)
+        console.log(`  released at  block ${release} (${duration(secs(release))})${staker.inactiveRelease ? '' : ' [computed]'}`)
       }
       console.log(`Retired    ${nim(staker.retiredBalance)}  (removable now)`)
     }
@@ -198,8 +208,9 @@ const commands = {
     const { keyPair, address, height } = await txBase()
     const staker = await getStaker(address.toUserFriendlyAddress())
     if (!staker?.inactiveBalance) throw new Error('Nothing inactive to retire')
-    if (staker.inactiveRelease && height < staker.inactiveRelease) {
-      throw new Error(`Inactive stake is locked until block ${staker.inactiveRelease} (${staker.inactiveRelease - height} blocks)`)
+    const release = releaseBlock(staker)
+    if (!release || height < release) {
+      throw new Error(`Inactive stake is locked until block ${release} (${release - height} blocks ≈ ${duration(release - height)})`)
     }
     const value = amountArg ? toLuna(amountArg) : BigInt(staker.inactiveBalance)
     const tx = Nimiq.TransactionBuilder.newRetireStake(address, value, FEE, height, NETWORK_ID)
