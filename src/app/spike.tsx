@@ -52,10 +52,20 @@ const inputClass = 'h-12 rounded-xl bg-black/5 px-3 font-mono outline-none'
 
 // --- Check 1 ----------------------------------------------------------------
 
+/** Whether the host wallet has consensus, read just before paying. Errors count as "no". */
+async function readSync(wallet: NimiqProvider) {
+  const [consensus, block] = await Promise.all([
+    wallet.isConsensusEstablished().catch(() => false),
+    wallet.getBlockNumber().catch(() => null),
+  ])
+  return { consensus, block }
+}
+
 function ContributeCheck({ pool }: { pool: PoolStatus | null }) {
   const [wallet, setWallet] = useState<NimiqProvider | null | undefined>(undefined)
   const [network, setNetwork] = useState<string>()
   const [account, setAccount] = useState<string>()
+  const [sync, setSync] = useState<{ consensus: boolean; block: number | null } | null>(null)
   const [amount, setAmount] = useState('1')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -66,7 +76,9 @@ function ContributeCheck({ pool }: { pool: PoolStatus | null }) {
     connectNimiq().then(async (provider) => {
       setWallet(provider)
       setNetwork(await hostNetwork())
-      if (provider) provider.listAccounts().then((accounts) => setAccount(accounts[0]), () => undefined)
+      if (!provider) return
+      provider.listAccounts().then((accounts) => setAccount(accounts[0]), () => undefined)
+      setSync(await readSync(provider))
     })
   }, [])
 
@@ -77,6 +89,8 @@ function ContributeCheck({ pool }: { pool: PoolStatus | null }) {
     setRaw(null)
     setCheck(null)
     const memo = `circle:spike:${crypto.randomUUID().slice(0, 6)}`
+    const before = await readSync(wallet)
+    setSync(before)
     const submittedAt = Date.now()
     let hint: string | null = null
     try {
@@ -84,7 +98,10 @@ function ContributeCheck({ pool }: { pool: PoolStatus | null }) {
       setRaw({ value, ms: Date.now() - submittedAt })
       hint = typeof value === 'string' ? value : null
     } catch (err) {
-      setError(await describeWalletError(err))
+      const walletError = await describeWalletError(err)
+      setError(walletError.text)
+      // Keep a record of host-side failures; they are part of what this check is measuring.
+      post('/api/spike/event', { event: 'wallet_error', detail: { ...walletError, memo, sync: before, network, account } }).catch(() => undefined)
       setBusy(false)
       return
     }
@@ -108,6 +125,7 @@ function ContributeCheck({ pool }: { pool: PoolStatus | null }) {
       <Row label="Wallet">{wallet === undefined ? 'connecting…' : wallet ? 'Nimiq Pay ✓' : 'not in Nimiq Pay'}</Row>
       <Row label="Host network">{network ?? '—'}</Row>
       <Row label="Account">{account ?? '—'}</Row>
+      <Row label="Wallet synced">{sync ? `${sync.consensus ? 'yes' : 'NO'} · block ${sync.block ?? '?'}` : '—'}</Row>
       <Row label="Pool">{pool?.address ?? '—'}</Row>
       {network && pool && network !== pool.network && (
         <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">Nimiq Pay is on {network} but the server is on {pool.network}.</p>

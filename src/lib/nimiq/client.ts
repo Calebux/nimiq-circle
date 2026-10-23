@@ -16,9 +16,18 @@ export async function hostNetwork(): Promise<string | undefined> {
   return getHostNetwork()
 }
 
-/** Turns anything the SDK throws into a readable line, keeping the error type when there is one. */
-export async function describeWalletError(err: unknown): Promise<string> {
+export interface WalletError {
+  /** One readable line, keeping the SDK error type when there is one. */
+  text: string
+  type?: string
+  code?: number
+  data?: unknown
+}
+
+export async function describeWalletError(err: unknown): Promise<WalletError> {
   const { NimiqProviderError } = await import('@nimiq/mini-app-sdk')
-  if (NimiqProviderError.is(err)) return `${err.type}: ${err.message}`
-  return err instanceof Error ? err.message : String(err)
+  if (NimiqProviderError.is(err)) {
+    return { text: `${err.type}: ${err.message}`, type: err.type, code: err.code, data: err.data }
+  }
+  return { text: err instanceof Error ? err.message : String(err) }
 }
