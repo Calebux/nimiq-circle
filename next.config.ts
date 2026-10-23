@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Lets Nimiq Pay load the dev server through `npm run tunnel`.
+  allowedDevOrigins: ["*.trycloudflare.com"],
 };
 
 export default nextConfig;
