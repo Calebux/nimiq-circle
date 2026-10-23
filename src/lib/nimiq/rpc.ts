@@ -120,3 +120,8 @@ export function getPolicy(): Promise<PolicyConstants> {
   })
   return policy
 }
+
+/** Broadcast a signed transaction. Returns the hash the node reports. */
+export function sendRawTransaction(hex: string): Promise<string> {
+  return call<string>('sendRawTransaction', [hex])
+}

@@ -12,6 +12,7 @@
     "tunnel": "cloudflared tunnel --no-autoupdate --protocol http2 --url http://localhost:3300"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "@nimiq/core": "^2.22.0",
     "@nimiq/mini-app-sdk": "^0.2.4",
     "@phosphor-icons/react": "^2.1.10",
