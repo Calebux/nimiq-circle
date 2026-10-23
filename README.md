@@ -18,7 +18,7 @@ Why NIM and not USDT/Aave: `@nimiq/mini-app-sdk` (0.2.4) exposes NIM transfers, 
 npm install
 npm run pool -- keygen     # creates the pool wallet in .env.local (gitignored)
 npm run dev                # http://localhost:3300
-npm run tunnel             # public https URL to open inside Nimiq Pay
+npm run tunnel             # public https URL to open inside Nimiq Pay (spike lives at /spike)
 ```
 
 Fund the pool address with ~110 NIM (100 NIM is the minimum stake).

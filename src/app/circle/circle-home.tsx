@@ -1,69 +1,11 @@
 'use client'
 
-import { ArrowRight, CaretLeft, Check, Sparkle } from '@phosphor-icons/react/dist/ssr'
+import { ArrowRight, Check, ShieldCheck, Sparkle } from '@phosphor-icons/react/dist/ssr'
 import Image from 'next/image'
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import type { Circle, Member } from './data'
-
-const nim = (n: number, digits = 0) => n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
-
-// Pastel seat colours, matched to each avatar's shirt.
-const SEAT_BG: Record<string, string> = {
-  tolu: 'bg-coral-soft',
-  baraka: 'bg-mint-soft',
-  vale: 'bg-sun-soft',
-  me: 'bg-sky-soft',
-  arjun: 'bg-lilac-soft',
-  shanice: 'bg-sky-soft',
-}
-
-const REDUCED_MOTION = '(prefers-reduced-motion: reduce)'
-
-function subscribeReducedMotion(onChange: () => void) {
-  const query = window.matchMedia(REDUCED_MOTION)
-  query.addEventListener('change', onChange)
-  return () => query.removeEventListener('change', onChange)
-}
-
-function useReducedMotion() {
-  return useSyncExternalStore(
-    subscribeReducedMotion,
-    () => window.matchMedia(REDUCED_MOTION).matches,
-    () => false,
-  )
-}
-
-/** Counts from the shown value to `target`. First view and real changes only, never on a loop. */
-function useCountUp(target: number, duration = 900) {
-  const reduce = useReducedMotion()
-  const [value, setValue] = useState(0)
-  const shown = useRef(0)
-  useEffect(() => {
-    const from = shown.current
-    const start = performance.now()
-    let frame = 0
-    const tick = (now: number) => {
-      const t = reduce ? 1 : Math.min(1, (now - start) / duration)
-      shown.current = from + (target - from) * (1 - Math.pow(1 - t, 3))
-      setValue(shown.current)
-      if (t < 1) frame = requestAnimationFrame(tick)
-    }
-    frame = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(frame)
-  }, [target, duration, reduce])
-  return value
-}
-
-function Avatar({ member, size, className = '' }: { member: Member; size: number; className?: string }) {
-  return (
-    <span
-      className={`relative inline-flex shrink-0 items-end justify-center overflow-hidden rounded-full ${SEAT_BG[member.id] ?? 'bg-sky-soft'} ${className}`}
-      style={{ width: size, height: size }}
-    >
-      <Image src={member.avatar} alt="" width={size} height={size} className="translate-y-[5%] scale-[0.94]" />
-    </span>
-  )
-}
+import Link from 'next/link'
+import { useEffect, useMemo, useState } from 'react'
+import { Avatar, AvatarStack, BackLink, BottomBar, Chip, PrimaryButton, Screen, Sheet, naira, nim, useCountUp, useReducedMotion } from '@/components/ui'
+import { NGN_PER_NIM, type Circle, type Member } from '@/lib/mock'
 
 // --- Pot ---------------------------------------------------------------------
 
@@ -85,11 +27,9 @@ function PotCard({ circle, paid, recipient }: { circle: Circle; paid: number; re
         />
 
         <p className="text-sm font-semibold text-coral-ink">In the pot this round</p>
-        <p className="mt-1 font-display text-[52px] font-extrabold leading-none tracking-tight tabular-nums">
-          {nim(inPot)}
-        </p>
+        <p className="mt-1 font-display text-[52px] font-extrabold leading-none tracking-tight tabular-nums">{nim(inPot)}</p>
         <p className="mt-1.5 text-[15px] text-ink-2">
-          of {nim(total)} NIM <span className="text-ink-2/80">≈ ₦{nim(total * circle.ngnPerNim)}</span>
+          of {nim(total)} NIM ≈ {naira(total * NGN_PER_NIM)}
         </p>
 
         <div className="mt-4 flex gap-1.5" aria-label={`${paid} of ${circle.members.length} paid`}>
@@ -161,7 +101,7 @@ function RotationDial({ circle }: { circle: Circle }) {
             const y = DIAL / 2 + RADIUS * Math.sin(angle) - SEAT / 2
             const done = member.turn < circle.round
             const current = member.turn === circle.round
-            const isYou = member.status === 'you' || member.id === 'me'
+            const isYou = member.id === 'me'
             return (
               <div
                 key={member.id}
@@ -173,7 +113,7 @@ function RotationDial({ circle }: { circle: Circle }) {
                   size={SEAT}
                   className={
                     current
-                      ? 'ring-4 ring-sun shadow-lift'
+                      ? 'shadow-lift ring-4 ring-sun'
                       : isYou
                         ? 'ring-[3px] ring-coral'
                         : done
@@ -203,17 +143,22 @@ function RotationDial({ circle }: { circle: Circle }) {
       </div>
 
       {next && (
-        <p className="mt-6 rounded-[var(--radius-inner)] bg-sun-soft px-4 py-3 text-[15px] text-sun-ink">
+        <div className="mt-6 rounded-[var(--radius-inner)] bg-sun-soft px-4 py-3 text-[15px] text-sun-ink">
           {next.id === 'me' ? (
             <>
-              <strong className="font-bold">You&apos;re up next.</strong> Round {next.turn}, Sun 2 Nov.
+              <p>
+                <strong className="font-bold">You&apos;re up next.</strong> Round {next.turn}, {circle.nextPayoutDate}.
+              </p>
+              <Link href="/circle/payout" className="mt-1 inline-flex items-center gap-1 font-bold underline decoration-2 underline-offset-4">
+                Preview your payout <ArrowRight size={14} weight="bold" />
+              </Link>
             </>
           ) : (
-            <>
+            <p>
               <strong className="font-bold">{next.name}</strong> is up next.
-            </>
+            </p>
           )}
-        </p>
+        </div>
       )}
     </section>
   )
@@ -231,9 +176,7 @@ function EarnCard({ circle }: { circle: Circle }) {
           +{nim(earned, 2)} NIM
           <Sparkle size={16} weight="fill" className="text-mint" />
         </p>
-        <p className="mt-0.5 text-sm leading-snug text-mint-ink">
-          Earned by staking the pot while it waits. Later turns get a little more.
-        </p>
+        <p className="mt-0.5 text-sm leading-snug text-mint-ink">Earned by staking the pot while it waits. Later turns get a little more.</p>
       </div>
     </section>
   )
@@ -241,85 +184,133 @@ function EarnCard({ circle }: { circle: Circle }) {
 
 // --- Members -----------------------------------------------------------------
 
-const STATUS = {
-  paid: { label: 'Paid', className: 'bg-mint-soft text-mint-ink' },
-  waiting: { label: 'Waiting', className: 'bg-lilac-soft text-lilac-ink' },
-  you: { label: 'Not yet', className: 'bg-coral-soft text-coral-ink' },
-} as const
-
 function MembersCard({ members, paid }: { members: Member[]; paid: number }) {
   const ordered = useMemo(() => [...members].sort((a, b) => a.turn - b.turn), [members])
   return (
     <section className="rounded-card bg-white p-5 shadow-soft">
       <div className="flex items-baseline justify-between">
         <h2 className="font-display text-xl font-bold tracking-tight">This round</h2>
-        <p className="text-sm text-ink-2 tabular-nums">
+        <p className="text-sm tabular-nums text-ink-2">
           {paid} of {members.length} paid
         </p>
       </div>
       <ul className="mt-3 flex flex-col gap-3">
-        {ordered.map((member) => {
-          const status = STATUS[member.status]
-          return (
-            <li key={member.id} className="flex items-center gap-3">
-              <Avatar member={member} size={44} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold">{member.name}</p>
-                <p className="text-sm text-ink-2">Takes the pot in round {member.turn}</p>
-              </div>
-              <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-semibold transition-colors duration-300 ${status.className}`}>
-                {member.status === 'paid' && <Check size={13} weight="bold" />}
-                {status.label}
-              </span>
-            </li>
-          )
-        })}
+        {ordered.map((member) => (
+          <li key={member.id} className="flex items-center gap-3">
+            <Avatar member={member} size={44} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-semibold">{member.name}</p>
+              <p className="text-sm text-ink-2">Takes the pot in round {member.turn}</p>
+            </div>
+            {member.status === 'paid' ? (
+              <Chip tone="mint">
+                <Check size={13} weight="bold" /> Paid
+              </Chip>
+            ) : member.status === 'waiting' ? (
+              <Chip tone="lilac">Waiting</Chip>
+            ) : (
+              <Chip tone="coral">Not yet</Chip>
+            )}
+          </li>
+        ))}
       </ul>
     </section>
   )
 }
 
-// --- Page --------------------------------------------------------------------
+// --- Chip in -----------------------------------------------------------------
 
-type PayState = 'idle' | 'waiting' | 'done'
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-2.5 text-[15px]">
+      <span className="text-ink-2">{label}</span>
+      <span className="text-right font-semibold">{children}</span>
+    </div>
+  )
+}
 
-export function CircleHome({ circle: initial }: { circle: Circle }) {
-  const [circle, setCircle] = useState(initial)
-  const [pay, setPay] = useState<PayState>('idle')
-  const paid = circle.members.filter((m) => m.status === 'paid').length
-  const recipient = circle.members.find((m) => m.turn === circle.round) ?? circle.members[0]
-  const me = circle.members.find((m) => m.id === 'me')
+function ChipInSheet({
+  circle,
+  open,
+  onOpenChange,
+  onPaid,
+}: {
+  circle: Circle
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onPaid: () => void
+}) {
+  const [waiting, setWaiting] = useState(false)
+  const recipient = circle.members.find((m) => m.turn === circle.round)
 
-  function chipIn() {
-    if (pay !== 'idle') return
-    setPay('waiting')
-    // Stand-in for Nimiq Pay's approval sheet and the memo-tagged payment from the spike.
+  function approve() {
+    setWaiting(true)
+    // Stand-in for Nimiq Pay's approval sheet and the memo-tagged payment proven in the spike.
     setTimeout(() => {
-      setCircle((c) => ({ ...c, members: c.members.map((m) => (m.id === 'me' ? { ...m, status: 'paid' } : m)) }))
-      setPay('done')
-    }, 1100)
+      setWaiting(false)
+      onOpenChange(false)
+      onPaid()
+    }, 1200)
   }
 
   return (
-    <main className="mx-auto w-full max-w-[440px] px-4 pb-[calc(120px+env(safe-area-inset-bottom,0px))] pt-[calc(14px+env(safe-area-inset-top,0px))]">
+    <Sheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title={`Chip in for round ${circle.round}`}
+      description={`The pot goes to ${recipient?.name} on ${circle.payoutDate}.`}
+    >
+      <div className="rounded-card bg-white p-5 text-center shadow-soft">
+        <p className="font-display text-[44px] font-extrabold leading-none tracking-tight tabular-nums">{nim(circle.contribution)}</p>
+        <p className="mt-1 text-ink-2">NIM ≈ {naira(circle.contribution * NGN_PER_NIM)}</p>
+      </div>
+
+      <div className="mt-3 divide-y divide-line rounded-card bg-white px-5 py-1 shadow-soft">
+        <Row label="To">{circle.name} pot</Row>
+        <Row label="Network fee">Free</Row>
+        <Row label="Reference">
+          <span className="font-mono text-sm">
+            circle:{circle.id.slice(0, 8)}:r{circle.round}
+          </span>
+        </Row>
+      </div>
+
+      <p className="mt-4 flex gap-2 text-sm leading-snug text-ink-2">
+        <ShieldCheck size={20} weight="fill" className="shrink-0 text-mint" />
+        Every contribution is a public Nimiq transaction with this reference, so anyone in the circle can check who paid.
+      </p>
+
+      <div className="mt-5">
+        <PrimaryButton onClick={approve} disabled={waiting}>
+          {waiting ? 'Waiting for Nimiq Pay…' : 'Approve in Nimiq Pay'}
+        </PrimaryButton>
+      </div>
+    </Sheet>
+  )
+}
+
+// --- Page --------------------------------------------------------------------
+
+export function CircleHome({ circle: initial }: { circle: Circle }) {
+  const [circle, setCircle] = useState(initial)
+  const [sheet, setSheet] = useState(false)
+  const paid = circle.members.filter((m) => m.status === 'paid').length
+  const recipient = circle.members.find((m) => m.turn === circle.round) ?? circle.members[0]
+  const youPaid = circle.members.find((m) => m.id === 'me')?.status === 'paid'
+
+  return (
+    <Screen>
       <header className="flex items-center gap-3">
-        <button aria-label="Back" className="press grid size-11 shrink-0 place-items-center rounded-full bg-white shadow-soft">
-          <CaretLeft size={20} weight="bold" />
-        </button>
+        <BackLink href="/" />
         <div className="min-w-0 flex-1">
           <p className="text-sm text-ink-2">
             {circle.localName} · {circle.cadence}
           </p>
           <h1 className="truncate font-display text-[28px] font-extrabold leading-none tracking-tight">{circle.name}</h1>
         </div>
-        <div className="flex -space-x-2.5">
-          {circle.members.slice(0, 3).map((m) => (
-            <Avatar key={m.id} member={m} size={30} className="ring-2 ring-blush" />
-          ))}
-          <span className="grid size-[30px] place-items-center rounded-full bg-white text-xs font-bold text-ink-2 ring-2 ring-blush">
-            +{circle.members.length - 3}
-          </span>
-        </div>
+        <Link href="/circle/invite" aria-label="Members and invite link" className="press">
+          <AvatarStack members={circle.members} />
+        </Link>
       </header>
 
       <div className="mt-6 flex flex-col gap-4">
@@ -329,29 +320,25 @@ export function CircleHome({ circle: initial }: { circle: Circle }) {
         <MembersCard members={circle.members} paid={paid} />
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-20 bg-blush/85 px-4 pb-[calc(14px+env(safe-area-inset-bottom,0px))] pt-3 backdrop-blur-xl">
-        <div className="mx-auto max-w-[408px]">
-          {pay === 'done' ? (
-            <div className="flex h-14 items-center justify-center gap-2 rounded-full bg-mint-soft font-bold text-mint-ink">
-              <span className="grid size-6 place-items-center rounded-full bg-mint text-white">
-                <Check size={14} weight="bold" />
-              </span>
-              You&apos;re in for round {circle.round}
-            </div>
-          ) : (
-            <button
-              onClick={chipIn}
-              disabled={pay === 'waiting' || !me}
-              className="press group flex h-14 w-full items-center justify-between rounded-full bg-coral pl-6 pr-2 text-[17px] font-bold text-white shadow-lift disabled:opacity-80"
-            >
-              {pay === 'waiting' ? 'Waiting for Nimiq Pay…' : `Chip in ${nim(circle.contribution)} NIM`}
-              <span className="grid size-10 place-items-center rounded-full bg-white/20 transition-transform duration-200 ease-[var(--ease-out)] group-active:translate-x-0.5">
-                <ArrowRight size={18} weight="bold" />
-              </span>
-            </button>
-          )}
-        </div>
-      </div>
-    </main>
+      <BottomBar>
+        {youPaid ? (
+          <div className="flex h-14 items-center justify-center gap-2 rounded-full bg-mint-soft font-bold text-mint-ink">
+            <span className="grid size-6 place-items-center rounded-full bg-mint text-white">
+              <Check size={14} weight="bold" />
+            </span>
+            You&apos;re in for round {circle.round}
+          </div>
+        ) : (
+          <PrimaryButton onClick={() => setSheet(true)}>Chip in {nim(circle.contribution)} NIM</PrimaryButton>
+        )}
+      </BottomBar>
+
+      <ChipInSheet
+        circle={circle}
+        open={sheet}
+        onOpenChange={setSheet}
+        onPaid={() => setCircle((c) => ({ ...c, members: c.members.map((m) => (m.id === 'me' ? { ...m, status: 'paid' } : m)) }))}
+      />
+    </Screen>
   )
 }
