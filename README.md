@@ -2,7 +2,25 @@
 
 A savings circle (ajo / tanda / susu / chama) for Nimiq Pay: members contribute NIM each round, one member takes the pot in turn, idle NIM is staked, and payouts can be cashed out to a Nigerian bank.
 
-This repo currently holds the **spike**: three checks that have to pass before the real build.
+## App
+
+| Route | What |
+|---|---|
+| `/` | Your circles and goals (sign in with Nimiq Pay) |
+| `/new`, `/c/[id]`, `/c/[id]/invite`, `/c/[id]/payout` | Create a circle, chip in, invite, take your pot (keep or cash out) |
+| `/join/[code]` | Invite link landing |
+| `/goals/new`, `/g/[id]` | Personal savings goal, flexible or locked until a date |
+| `/spike` | The pre-build checks below |
+
+**How money moves.** One pool wallet holds every circle and goal. Members pay it from Nimiq Pay with a memo (`cc:<circle>:<round>`, `cg:<goal>`); the server only counts a deposit once it is on chain, from the signed-in wallet, with the right memo and amount. Payouts and withdrawals are signed by the pool key on the server. Locked goals are enforced server-side. Idle NIM is staked; yield = what the pool really holds on chain minus what it owes minus `POOL_FLOAT_NIM`, shared by balance.
+
+**Sign-in.** Nimiq Pay `sign()` over a one-time challenge, verified with `@nimiq/core` (sha256 of the `\x16Nimiq Signed Message:\n` prefixed message, Ed25519), then an HMAC session cookie.
+
+**Dev wallet.** With `DEV_WALLET=1` (never in production) a desktop browser gets a throwaway test wallet and simulated payments, so multi-person flows can be clicked through without phones. `INSTANT_PAYOUTS=1` pays a round as soon as everyone is in.
+
+## Spike
+
+Three checks that had to pass before the real build.
 
 | # | Check | Answers |
 |---|-------|---------|

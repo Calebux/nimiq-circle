@@ -5,10 +5,12 @@ import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { BackLink, BottomBar, PrimaryButton, Screen, naira, nim, useCountUp } from '@/components/ui'
-import { CADENCES, LOCAL_NAMES, NGN_PER_NIM } from '@/lib/mock'
+import { SignedIn } from '@/components/gate'
+import { api } from '@/components/wallet'
+import { CADENCES, LOCAL_NAMES, NGN_PER_NIM } from '@/lib/constants'
 
 const PRESETS = [1000, 2500, 5000, 10000]
-const MIN_PEOPLE = 3
+const MIN_PEOPLE = 2
 const MAX_PEOPLE = 12
 
 function Field({ label, htmlFor, hint, children }: { label: string; htmlFor?: string; hint?: string; children: React.ReactNode }) {
@@ -38,7 +40,7 @@ function Pill({ selected, onClick, children }: { selected: boolean; onClick: () 
   )
 }
 
-export function CreateCircle() {
+function CreateCircleForm() {
   const router = useRouter()
   const [name, setName] = useState('')
   const [localName, setLocalName] = useState<string>('Ajo')
@@ -52,9 +54,21 @@ export function CreateCircle() {
   const unit = cadence === 'Monthly' ? 'month' : cadence === 'Weekly' ? 'week' : 'fortnight'
   const ready = name.trim().length > 0 && contribution > 0
 
-  function create() {
-    const params = new URLSearchParams({ name: name.trim(), local: localName, amount: String(contribution), people: String(people) })
-    router.push(`/circle/invite?${params}`)
+  const [creating, setCreating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function create() {
+    setCreating(true)
+    setError(null)
+    try {
+      const { id } = await api<{ id: string }>('/api/circles', {
+        body: { name: name.trim(), localName, cadence, contribution, size: people, order },
+      })
+      router.push(`/c/${id}/invite`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      setCreating(false)
+    }
   }
 
   return (
@@ -183,11 +197,21 @@ export function CreateCircle() {
         </Field>
       </div>
 
+      {error && <p className="mt-6 rounded-[var(--radius-inner)] bg-coral-soft px-4 py-3 text-sm text-coral-ink">{error}</p>}
+
       <BottomBar>
-        <PrimaryButton onClick={create} disabled={!ready}>
-          {ready ? 'Create and invite' : 'Name your circle'}
+        <PrimaryButton onClick={create} disabled={!ready || creating}>
+          {creating ? 'Creating…' : ready ? 'Create and invite' : 'Name your circle'}
         </PrimaryButton>
       </BottomBar>
     </Screen>
+  )
+}
+
+export function CreateCircle() {
+  return (
+    <SignedIn>
+      <CreateCircleForm />
+    </SignedIn>
   )
 }

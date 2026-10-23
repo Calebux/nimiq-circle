@@ -152,6 +152,7 @@ export async function goalView(user: User, goalId: string) {
     target: goal.target === null ? null : goal.target / LUNA,
     unlockAt: goal.unlock_at,
     locked: Boolean(goal.unlock_at && Date.now() < goal.unlock_at),
+    daysLeft: goal.unlock_at ? Math.max(0, Math.ceil((goal.unlock_at - Date.now()) / 86_400_000)) : 0,
     status: goal.status,
     balance: balance / LUNA,
     earned: earned / LUNA,
@@ -170,6 +171,7 @@ export async function myGoals(user: User) {
       name: g.name,
       target: g.target === null ? null : g.target / LUNA,
       unlockAt: g.unlock_at,
+      locked: Boolean(g.unlock_at && Date.now() < g.unlock_at),
       balance: (await balanceOf(g.id)).balance / LUNA,
     })),
   )

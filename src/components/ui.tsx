@@ -5,7 +5,6 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Drawer } from 'vaul'
-import type { Member, Tint } from '@/lib/mock'
 
 export const nim = (n: number, digits = 0) =>
   n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
@@ -53,31 +52,27 @@ export function useCountUp(target: number, duration = 900) {
 
 // --- Avatar ------------------------------------------------------------------
 
-const TINT_BG: Record<Tint, string> = {
-  coral: 'bg-coral-soft',
-  mint: 'bg-mint-soft',
-  sun: 'bg-sun-soft',
-  sky: 'bg-sky-soft',
-  lilac: 'bg-lilac-soft',
-}
+// Avatar art 1-6 (public/art/avatars), each on the pastel matching its shirt.
+const AVATAR_TINT = ['bg-coral-soft', 'bg-mint-soft', 'bg-sun-soft', 'bg-lilac-soft', 'bg-sky-soft', 'bg-coral-soft']
 
-export function Avatar({ member, size, className = '' }: { member: Pick<Member, 'avatar' | 'tint'>; size: number; className?: string }) {
+export function Avatar({ avatar, size, className = '' }: { avatar: number; size: number; className?: string }) {
+  const n = Math.min(6, Math.max(1, avatar))
   return (
     <span
-      className={`relative inline-flex shrink-0 items-end justify-center overflow-hidden rounded-full ${TINT_BG[member.tint]} ${className}`}
+      className={`relative inline-flex shrink-0 items-end justify-center overflow-hidden rounded-full ${AVATAR_TINT[n - 1]} ${className}`}
       style={{ width: size, height: size }}
     >
-      <Image src={member.avatar} alt="" width={size} height={size} className="translate-y-[5%] scale-[0.94]" />
+      <Image src={`/art/avatars/${n}.webp`} alt="" width={size} height={size} className="translate-y-[5%] scale-[0.94]" />
     </span>
   )
 }
 
-export function AvatarStack({ members, size = 30, max = 3 }: { members: Member[]; size?: number; max?: number }) {
-  const extra = members.length - max
+export function AvatarStack({ avatars, size = 30, max = 3 }: { avatars: number[]; size?: number; max?: number }) {
+  const extra = avatars.length - max
   return (
     <div className="flex -space-x-2.5">
-      {members.slice(0, max).map((m) => (
-        <Avatar key={m.id} member={m} size={size} className="ring-2 ring-blush" />
+      {avatars.slice(0, max).map((a, i) => (
+        <Avatar key={i} avatar={a} size={size} className="ring-2 ring-blush" />
       ))}
       {extra > 0 && (
         <span className="grid place-items-center rounded-full bg-white text-xs font-bold text-ink-2 ring-2 ring-blush" style={{ width: size, height: size }}>
@@ -87,6 +82,9 @@ export function AvatarStack({ members, size = 30, max = 3 }: { members: Member[]
     </div>
   )
 }
+
+/** "Sun 26 Oct" */
+export const shortDate = (ms: number) => new Date(ms).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
 
 // --- Buttons -----------------------------------------------------------------
 
