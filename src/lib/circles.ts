@@ -2,7 +2,7 @@ import 'server-only'
 import { displayName, usersByAddress, type User } from './auth'
 import { all, LUNA, newId, one, run } from './db'
 import { bankLanded, deliver, type BankDetails, type Method } from './delivery'
-import { circleMemo, isSimulated, verifyDeposit, type DepositResult } from './deposits'
+import { circleMemo, isSimulated, reconcile, verifyDeposit, type DepositResult } from './deposits'
 import { serverConfig } from './env'
 import { ApiError } from './errors'
 import { sameAddress } from './nimiq/address'
@@ -147,6 +147,17 @@ export async function advance(circleId: string) {
     const circle = await getCircle(circleId)
     if (circle.status !== 'active') return
     const members = await membersOf(circleId)
+    const before = await paidThisRound(circleId, circle.round)
+    // Credit current-round payments the app never reported. A second payment from someone
+    // who already paid is left unrecorded (it needs a refund, not a credit).
+    const credited = [...before]
+    await reconcile('circle', circleId, (memo, payer, tx) => {
+      const member = members.find((m) => sameAddress(m.address, payer))
+      const ok = member && memo === circleMemo(circleId, circle.round) && tx.value >= circle.contribution && !credited.some((a) => sameAddress(a, payer))
+      if (!ok) return null
+      credited.push(member.address)
+      return { round: circle.round, address: member.address }
+    }).catch((err) => console.error('reconcile circle', circleId, err))
     const paid = await paidThisRound(circleId, circle.round)
     if (!members.every((m) => paid.some((a) => sameAddress(a, m.address)))) return
     const due = dueAt(circle, circle.round)

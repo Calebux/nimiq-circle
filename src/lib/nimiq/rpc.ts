@@ -5,6 +5,8 @@ import { serverConfig } from '@/lib/env'
 export interface ChainTransaction {
   hash: string
   from: string
+  /** 0 basic, 1 vesting, 2 HTLC, 3 staking. */
+  fromType?: number
   to: string
   /** Luna. */
   value: number
@@ -124,4 +126,17 @@ export function getPolicy(): Promise<PolicyConstants> {
 /** Broadcast a signed transaction. Returns the hash the node reports. */
 export function sendRawTransaction(hex: string): Promise<string> {
   return call<string>('sendRawTransaction', [hex])
+}
+
+export interface ChainAccount {
+  address: string
+  balance: number
+  type: 'basic' | 'vesting' | 'htlc' | 'staking'
+  /** HTLC only: who funded it and can take it back. */
+  sender?: string
+  recipient?: string
+}
+
+export function getAccount(address: string): Promise<ChainAccount> {
+  return call<ChainAccount>('getAccountByAddress', [address])
 }

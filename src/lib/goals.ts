@@ -2,7 +2,7 @@ import 'server-only'
 import type { User } from './auth'
 import { all, LUNA, newId, one, run } from './db'
 import { bankLanded, deliver, type BankDetails, type Method } from './delivery'
-import { goalMemo, isSimulated, verifyDeposit, type DepositResult } from './deposits'
+import { goalMemo, isSimulated, reconcile, verifyDeposit, type DepositResult } from './deposits'
 import { ApiError } from './errors'
 import { sameAddress } from './nimiq/address'
 import { yieldShare } from './yield'
@@ -57,6 +57,13 @@ export async function createGoal(user: User, input: { name: string; targetNim: n
   return id
 }
 
+/** Credit owner payments tagged for this goal that the app never reported. */
+async function reconcileGoal(goal: GoalRow) {
+  await reconcile('goal', goal.id, (_memo, payer, tx) =>
+    sameAddress(payer, goal.owner) && tx.value >= MIN_DEPOSIT ? { round: null, address: goal.owner } : null,
+  ).catch((err) => console.error('reconcile goal', goal.id, err))
+}
+
 async function balanceOf(goalId: string) {
   const row = await one<{ deposited: number; withdrawn: number; simulated: number }>(
     `SELECT
@@ -87,6 +94,7 @@ export async function recordGoalDeposit(user: User, goalId: string, hint: string
 /** Locked goals refuse until their date; flexible goals pay out any time. Always withdraws everything. */
 export async function withdrawGoal(user: User, goalId: string, method: Method, bank?: BankDetails) {
   const goal = await ownGoal(user, goalId)
+  await reconcileGoal(goal)
   if (goal.unlock_at && Date.now() < goal.unlock_at) throw new ApiError(`Locked until ${new Date(goal.unlock_at).toDateString()}`, 403)
   const { balance, simulated } = await balanceOf(goalId)
   if (balance <= 0) throw new ApiError('Nothing to withdraw yet')
@@ -140,6 +148,7 @@ export type PublicWithdrawal = ReturnType<typeof publicWithdrawal>
 
 export async function goalView(user: User, goalId: string) {
   const goal = await ownGoal(user, goalId)
+  await reconcileGoal(goal)
   const [{ balance, simulated }, deposits, withdrawals] = await Promise.all([
     balanceOf(goalId),
     all<{ tx_hash: string; amount: number; created_at: number }>("SELECT tx_hash, amount, created_at FROM deposits WHERE kind = 'goal' AND ref_id = ? ORDER BY created_at DESC", [goalId]),
@@ -165,6 +174,7 @@ export type GoalView = Awaited<ReturnType<typeof goalView>>
 
 export async function myGoals(user: User) {
   const goals = await all<GoalRow>("SELECT * FROM goals WHERE owner = ? AND status = 'open' ORDER BY created_at DESC", [user.address])
+  await Promise.all(goals.map(reconcileGoal))
   return Promise.all(
     goals.map(async (g) => ({
       id: g.id,
