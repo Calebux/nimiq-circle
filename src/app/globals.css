@@ -1,11 +1,84 @@
 @import "tailwindcss";
 
-@theme inline {
-  --font-sans: var(--font-geist-sans);
+/* "Sweet Pot" tokens. Colour carries meaning; see CLAUDE.md before adding one. */
+@theme {
+  --font-display: var(--font-bricolage);
+  --font-sans: var(--font-figtree);
   --font-mono: var(--font-geist-mono);
+
+  --color-blush: #fff6f1; /* canvas */
+  --color-card: #ffffff;
+  --color-ink: #2b1631; /* plum text */
+  --color-ink-2: #6e5872; /* secondary text, 6:1 on blush */
+  --color-line: #f1e2dc;
+
+  --color-coral: #d63f35; /* act, the pot. White text passes AA */
+  --color-coral-bright: #f0604f; /* illustration-matched, never under text */
+  --color-coral-soft: #ffe3de;
+  --color-coral-ink: #c93a30;
+
+  --color-mint: #3dbe8b; /* yield earned */
+  --color-mint-soft: #ddf5ea;
+  --color-mint-ink: #0b5c40;
+
+  --color-sun: #ffc93c; /* payout, your turn */
+  --color-sun-soft: #fff0c2;
+  --color-sun-ink: #6b4a00;
+
+  --color-lilac: #b9a6f0; /* waiting */
+  --color-lilac-soft: #ede7fb;
+  --color-lilac-ink: #4f3a8c;
+
+  --color-sky-soft: #e1f0ff;
+
+  --radius-card: 28px;
+  --radius-inner: 20px;
+
+  --shadow-soft: 0 1px 0 rgb(43 22 49 / 0.04), 0 14px 34px -14px rgb(43 22 49 / 0.22);
+  --shadow-lift: 0 1px 0 rgb(43 22 49 / 0.05), 0 22px 44px -18px rgb(43 22 49 / 0.32);
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+/* Mobile-native baseline (Emil Kowalski, mobile-native). */
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
 }
 
 body {
-  background: #f4f3ef;
-  color: #111;
+  background: var(--color-blush);
+  color: var(--color-ink);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+input,
+textarea,
+select {
+  font-size: 16px;
+}
+
+button,
+a,
+[role="button"] {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Press feedback: lands on finger-down, 120ms ease-out. */
+.press {
+  transition: transform 120ms var(--ease-out);
+}
+.press:active {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .press:active {
+    transform: none;
+    opacity: 0.85;
+  }
 }
