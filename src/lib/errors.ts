@@ -15,6 +15,8 @@ export function errorResponse(err: unknown): Response {
 }
 
 export async function readJsonBody(request: Request): Promise<Record<string, unknown>> {
+  // A cross-site form can post text/plain that happens to parse as JSON; only the app sends JSON.
+  if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) throw new ApiError('Request body must be JSON', 415)
   try {
     const body: unknown = await request.json()
     if (body && typeof body === 'object' && !Array.isArray(body)) return body as Record<string, unknown>

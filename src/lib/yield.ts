@@ -1,6 +1,8 @@
 import 'server-only'
+import type { Currency } from './currency'
 import { one } from './db'
 import { serverConfig } from './env'
+import { evmPoolAddress, usdtBalance } from './evm/polygon'
 import { getBalance, getStaker } from './nimiq/rpc'
 import { floatStatus } from './treasury'
 
@@ -14,13 +16,16 @@ const floatLuna = () => Math.round(Number(process.env.POOL_FLOAT_NIM ?? 0) * 100
  * NIM owed to members: real deposits minus real money already sent back out. "Real" means it
  * involved a real wallet: test-wallet users are excluded by their user row, not by tx hashes.
  */
-async function liabilities(): Promise<number> {
+async function liabilities(currency: Currency = 'NIM'): Promise<number> {
   const row = await one<{ owed: number }>(
     `SELECT
-       (SELECT COALESCE(SUM(d.amount), 0) FROM deposits d JOIN users u ON u.address = d.address WHERE u.dev = 0 AND d.tx_hash NOT LIKE 'mock-%')
-     - (SELECT COALESCE(SUM(p.pot + p.bonus), 0) FROM payouts p JOIN users u ON u.address = p.address WHERE u.dev = 0 AND p.status IN ('sent', 'cashing', 'cashed'))
-     - (SELECT COALESCE(SUM(w.amount + w.bonus), 0) FROM withdrawals w JOIN users u ON u.address = w.address WHERE u.dev = 0 AND w.status IN ('sent', 'cashing', 'cashed'))
+       (SELECT COALESCE(SUM(d.amount), 0) FROM deposits d JOIN users u ON u.address = d.address WHERE u.dev = 0 AND d.tx_hash NOT LIKE 'mock-%' AND d.currency = ?1)
+     - (SELECT COALESCE(SUM(p.pot + p.bonus), 0) FROM payouts p JOIN users u ON u.address = p.address JOIN circles c ON c.id = p.circle_id
+         WHERE u.dev = 0 AND p.status IN ('sent', 'cashing', 'cashed') AND c.currency = ?1)
+     - (SELECT COALESCE(SUM(w.amount + w.bonus), 0) FROM withdrawals w JOIN users u ON u.address = w.address JOIN goals g ON g.id = w.goal_id
+         WHERE u.dev = 0 AND w.status IN ('sent', 'cashing', 'cashed') AND g.currency = ?1)
      AS owed`,
+    [currency],
   )
   return row?.owed ?? 0
 }
@@ -42,9 +47,9 @@ async function poolSurplus() {
   return cached
 }
 
-/** This pot's share of the yield so far, in luna. Simulated (dev) pots earn nothing. */
-export async function yieldShare(balanceLuna: number, simulated: boolean): Promise<number> {
-  if (simulated || balanceLuna <= 0) return 0
+/** This pot's share of the yield so far, in luna. Simulated (dev) pots and USDT earn nothing. */
+export async function yieldShare(balanceLuna: number, simulated: boolean, currency: Currency = 'NIM'): Promise<number> {
+  if (currency !== 'NIM' || simulated || balanceLuna <= 0) return 0
   const { surplus, liabilities: total } = await poolSurplus()
   if (total <= 0) return 0
   return Math.floor((surplus * Math.min(balanceLuna, total)) / total)
@@ -72,4 +77,12 @@ export async function reserves() {
     operator,
     earned: Math.max(0, liquid + staked - owed - operator),
   }
+}
+
+/** USDT side of the proof: what the Polygon pool holds against what members are owed. Micro-USDT. */
+export async function usdtReserves() {
+  const address = evmPoolAddress()
+  if (!address) return null
+  const [held, owed] = await Promise.all([usdtBalance(address).catch(() => null), liabilities('USDT')])
+  return { address, held, owedToMembers: owed }
 }

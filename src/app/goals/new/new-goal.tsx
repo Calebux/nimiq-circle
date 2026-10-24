@@ -4,12 +4,13 @@ import { LockSimple, LockSimpleOpen } from '@phosphor-icons/react/dist/ssr'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { CurrencyPicker } from '@/components/currency'
 import { SignedIn } from '@/components/gate'
 import { BackLink, BottomBar, PrimaryButton, Screen, nim, shortDate } from '@/components/ui'
 import { Ngn, api } from '@/components/wallet'
+import { PRESETS, type Currency } from '@/lib/currency'
 
 const IDEAS = ['Rent', 'Detty December', 'School fees', 'Emergency fund', 'New phone', 'Japa']
-const TARGETS = [50000, 100000, 250000, 500000]
 const DAY = 86_400_000
 
 /** <input type="date"> speaks local calendar days; toISOString() would shift them to UTC. */
@@ -55,6 +56,7 @@ function Form() {
   const [now] = useState(() => Date.now())
   const presets = lockPresets(now)
   const [name, setName] = useState('')
+  const [currency, setCurrency] = useState<Currency>('NIM')
   const [target, setTarget] = useState('')
   const [locked, setLocked] = useState(true)
   const [unlockAt, setUnlockAt] = useState(presets[1].at)
@@ -68,7 +70,7 @@ function Form() {
     setCreating(true)
     setError(null)
     try {
-      const { id } = await api<{ id: string }>('/api/goals', { body: { name: name.trim(), target: targetNim || null, unlockAt: locked ? unlockAt : null } })
+      const { id } = await api<{ id: string }>('/api/goals', { body: { name: name.trim(), currency, target: targetNim || null, unlockAt: locked ? unlockAt : null } })
       router.push(`/g/${id}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -87,8 +89,12 @@ function Form() {
         <Image src="/art/jar.webp" alt="" width={502} height={600} className="pointer-events-none absolute -right-2 top-2 w-[96px]" />
         <p className="text-sm font-semibold text-ink-2">Saving for</p>
         <p className="max-w-[68%] truncate font-display text-2xl font-extrabold tracking-tight">{name.trim() || 'Your goal'}</p>
-        <p className="mt-3 font-display text-[36px] font-extrabold leading-none tracking-tight tabular-nums">{targetNim ? `${nim(targetNim)} NIM` : 'Any amount'}</p>
-        {targetNim > 0 && <p className="mt-1 text-[15px] text-ink-2">≈ <Ngn nim={targetNim} /></p>}
+        <p className="mt-3 font-display text-[36px] font-extrabold leading-none tracking-tight tabular-nums">{targetNim ? `${nim(targetNim)} ${currency}` : 'Any amount'}</p>
+        {targetNim > 0 && (
+          <p className="mt-1 text-[15px] text-ink-2">
+            ≈ <Ngn amount={targetNim} currency={currency} />
+          </p>
+        )}
         <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/80 px-3 py-1.5 text-sm font-semibold">
           {locked ? <LockSimple size={15} weight="bold" /> : <LockSimpleOpen size={15} weight="bold" />}
           {locked ? `Locked until ${shortDate(unlockAt)} (${days} days)` : 'Take it out any time'}
@@ -119,6 +125,17 @@ function Form() {
         </section>
 
         <section className="flex flex-col gap-2">
+          <p className="font-display text-lg font-bold tracking-tight">Save in</p>
+          <CurrencyPicker
+            value={currency}
+            onChange={(c) => {
+              setCurrency(c)
+              setTarget('')
+            }}
+          />
+        </section>
+
+        <section className="flex flex-col gap-2">
           <label htmlFor="target" className="font-display text-lg font-bold tracking-tight">
             Target <span className="font-sans text-sm font-normal text-ink-2">(optional)</span>
           </label>
@@ -131,10 +148,10 @@ function Form() {
               onChange={(e) => setTarget(e.target.value.replace(/\D/g, '').slice(0, 8))}
               className="min-w-0 flex-1 bg-transparent font-display text-3xl font-extrabold tabular-nums outline-none placeholder:text-ink-2/40"
             />
-            <span className="font-semibold text-ink-2">NIM</span>
+            <span className="font-semibold text-ink-2">{currency}</span>
           </div>
           <div className="grid grid-cols-4 gap-2">
-            {TARGETS.map((t) => (
+            {PRESETS[currency].target.map((t) => (
               <Pill key={t} selected={targetNim === t} onClick={() => setTarget(String(t))}>
                 {nim(t)}
               </Pill>

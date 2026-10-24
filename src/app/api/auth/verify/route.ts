@@ -1,8 +1,10 @@
 import { startSession, verifySignIn } from '@/lib/auth'
 import { ApiError, errorResponse, readJsonBody } from '@/lib/errors'
+import { rateLimit } from '@/lib/security'
 
 export async function POST(request: Request) {
   try {
+    await rateLimit('verify', 20, 60_000)
     const body = await readJsonBody(request)
     const s = (k: string) => {
       if (typeof body[k] !== 'string' || !body[k]) throw new ApiError(`Missing ${k}`)

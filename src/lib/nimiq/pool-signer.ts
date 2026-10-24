@@ -1,13 +1,15 @@
 import 'server-only'
 import { serverConfig } from '@/lib/env'
-import { getBlockNumber, sendRawTransaction } from './rpc'
+import { getBlockNumber, getTransaction, sendRawTransaction } from './rpc'
 
 type NimiqModule = typeof import('@nimiq/core')
 type Built = ReturnType<NimiqModule['TransactionBuilder']['newBasic']>
 
 /**
  * Build, sign with the pool key and broadcast. The only server path that uses
- * POOL_PRIVATE_KEY. Fee is zero, like every transaction the app sends.
+ * POOL_PRIVATE_KEY. Fee is zero, like every transaction the app sends. If the broadcast
+ * errors, the chain (or mempool) is asked about the hash before reporting a failure, so a
+ * payout that did go out is never rolled back and sent again.
  */
 async function poolTx(build: (n: NimiqModule, pool: InstanceType<NimiqModule['Address']>, height: number, networkId: number) => Built): Promise<string> {
   const { poolPrivateKey, networkId } = serverConfig().nim
@@ -16,8 +18,14 @@ async function poolTx(build: (n: NimiqModule, pool: InstanceType<NimiqModule['Ad
   const keyPair = Nimiq.KeyPair.derive(Nimiq.PrivateKey.fromHex(poolPrivateKey))
   const tx = build(Nimiq, keyPair.toAddress(), await getBlockNumber(), networkId)
   tx.sign(keyPair, undefined)
-  await sendRawTransaction(tx.toHex())
-  return tx.hash()
+  const hash = tx.hash()
+  try {
+    await sendRawTransaction(tx.toHex())
+  } catch (err) {
+    await new Promise((r) => setTimeout(r, 3_000))
+    if (!(await getTransaction(hash).catch(() => null))) throw err
+  }
+  return hash
 }
 
 const ZERO = BigInt(0)

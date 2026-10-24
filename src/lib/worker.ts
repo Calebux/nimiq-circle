@@ -1,5 +1,6 @@
 import 'server-only'
 import { activeCircleIds, advance, remind, settleCashingPayouts } from './circles'
+import { syncEvmPending } from './deposits'
 import { syncGoals } from './goals'
 import { manageStake } from './staking'
 
@@ -22,6 +23,8 @@ export async function tick() {
       console.error(`[worker] ${name}`, err)
     }
   }
+  // Before circles, so a USDT payment that just confirmed can close its round in the same pass.
+  await step('usdt', syncEvmPending)
   await step('circles', async () => {
     for (const id of await activeCircleIds()) {
       await advance(id)

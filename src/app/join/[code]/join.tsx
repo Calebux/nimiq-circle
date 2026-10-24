@@ -54,16 +54,17 @@ export function JoinScreen({ code }: { code: string }) {
         <div className="mt-4 grid grid-cols-2 gap-2 text-left">
           <div className="rounded-[var(--radius-inner)] bg-white p-3">
             <p className="text-xs font-semibold text-ink-2">Each round</p>
-            <p className="font-display text-xl font-extrabold tabular-nums">{nim(circle.contribution)} NIM</p>
+            <p className="font-display text-xl font-extrabold tabular-nums">{nim(circle.contribution)} {circle.currency}</p>
           </div>
           <div className="rounded-[var(--radius-inner)] bg-white p-3">
             <p className="text-xs font-semibold text-ink-2">Your pot</p>
-            <p className="font-display text-xl font-extrabold tabular-nums">{nim(circle.contribution * circle.size)} NIM</p>
+            <p className="font-display text-xl font-extrabold tabular-nums">{nim(circle.contribution * circle.size)} {circle.currency}</p>
           </div>
         </div>
         <p className="mt-3 text-sm text-lilac-ink">
-          {circle.cadence}, {circle.size} people. Your pot ≈ <Ngn nim={circle.contribution * circle.size} />.
+          {circle.cadence}, {circle.size} people. Your pot ≈ <Ngn amount={circle.contribution * circle.size} currency={circle.currency} />.
         </p>
+        {circle.currency === 'USDT' && <p className="mt-1 text-sm text-lilac-ink">Saved in USDT on Polygon, paid from your Nimiq Pay wallet.</p>}
       </section>
 
       <section className="mt-4 rounded-card bg-white p-5 shadow-soft">

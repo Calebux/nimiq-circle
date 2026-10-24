@@ -1,5 +1,6 @@
 import { cadences } from '@/lib/circles'
 import { serverConfig } from '@/lib/env'
+import { evmPoolAddress } from '@/lib/evm/polygon'
 import { offrampProvider } from '@/lib/offramp'
 import { nimUsd } from '@/lib/pricing'
 
@@ -7,11 +8,13 @@ import { nimUsd } from '@/lib/pricing'
 export async function GET() {
   const { nim, devWallet } = serverConfig()
   let ngnPerNim: number | null = null
+  let ngnPerUsdt: number | null = null
   try {
-    const [usd, provider] = await Promise.all([nimUsd(), offrampProvider().quote({ usdtMicro: 1_000_000 })])
-    ngnPerNim = usd * provider.rate
+    const provider = await offrampProvider().quote({ usdtMicro: 1_000_000 })
+    ngnPerUsdt = provider.rate
+    ngnPerNim = (await nimUsd()) * provider.rate
   } catch {
     // Estimates fall back to the client constant; cash-out still gets a real quote.
   }
-  return Response.json({ poolAddress: nim.poolAddress, network: nim.network, devWallet, ngnPerNim, cadences: cadences() })
+  return Response.json({ poolAddress: nim.poolAddress, usdtPoolAddress: evmPoolAddress(), network: nim.network, devWallet, ngnPerNim, ngnPerUsdt, cadences: cadences() })
 }

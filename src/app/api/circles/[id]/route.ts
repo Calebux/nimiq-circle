@@ -1,5 +1,6 @@
 import { requireUser } from '@/lib/auth'
 import { circleView, updateCircle } from '@/lib/circles'
+import { asCurrency } from '@/lib/currency'
 import { ApiError, errorResponse, readJsonBody } from '@/lib/errors'
 
 export async function GET(_request: Request, ctx: RouteContext<'/api/circles/[id]'>) {
@@ -23,7 +24,8 @@ export async function PATCH(request: Request, ctx: RouteContext<'/api/circles/[i
       name: b.name,
       localName: b.localName,
       cadence: b.cadence,
-      contributionNim: Number(b.contribution),
+      contribution: Number(b.contribution),
+      currency: asCurrency(b.currency),
       size: Number(b.size),
       order: b.order === 'shuffle' ? 'shuffle' : 'join',
     })

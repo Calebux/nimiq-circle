@@ -194,7 +194,7 @@ function CircleCard({ c }: { c: CircleSummary }) {
         </div>
 
         <div className="mt-3 flex items-center justify-between gap-2 text-sm">
-          <span className="text-ink-2">{filling ? `${nim(c.contribution)} NIM a round` : done ? 'Finished' : `Round ${c.round} of ${c.size}`}</span>
+          <span className="text-ink-2">{filling ? `${nim(c.contribution)} ${c.currency} a round` : done ? 'Finished' : `Round ${c.round} of ${c.size}`}</span>
           {c.payoutReady ? (
             <Chip tone="sun">
               <Gift size={13} weight="fill" /> Money is waiting
@@ -229,7 +229,7 @@ function GoalCard({ g }: { g: GoalSummary }) {
         <p className="truncate font-display text-lg font-extrabold tracking-tight">{g.name}</p>
         <p className="text-sm tabular-nums text-ink-2">
           {nim(g.balance)}
-          {g.target ? ` of ${nim(g.target)}` : ''} NIM
+          {g.target ? ` of ${nim(g.target)}` : ''} {g.currency}
         </p>
         {g.target && (
           <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-blush">

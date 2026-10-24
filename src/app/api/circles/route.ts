@@ -1,5 +1,6 @@
 import { requireUser } from '@/lib/auth'
 import { createCircle } from '@/lib/circles'
+import { asCurrency } from '@/lib/currency'
 import { ApiError, errorResponse, readJsonBody } from '@/lib/errors'
 
 export async function POST(request: Request) {
@@ -11,7 +12,8 @@ export async function POST(request: Request) {
       name: b.name,
       localName: b.localName,
       cadence: b.cadence,
-      contributionNim: Number(b.contribution),
+      contribution: Number(b.contribution),
+      currency: asCurrency(b.currency),
       size: Number(b.size),
       order: b.order === 'shuffle' ? 'shuffle' : 'join',
     })

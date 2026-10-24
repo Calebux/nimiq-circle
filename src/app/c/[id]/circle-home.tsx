@@ -1,6 +1,6 @@
 'use client'
 
-import { ArrowRight, BellRinging, Check, Gift, Hourglass, PencilSimple, Play, ShieldCheck, Sparkle, X } from '@phosphor-icons/react/dist/ssr'
+import { ArrowRight, BellRinging, Check, CurrencyDollar, Gift, Hourglass, PencilSimple, Play, ShieldCheck, Sparkle, X } from '@phosphor-icons/react/dist/ssr'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -30,7 +30,7 @@ function PotCard({ circle }: { circle: CircleView }) {
         <p className="text-sm font-semibold text-coral-ink">In the pot this round</p>
         <p className="mt-1 font-display text-[52px] font-extrabold leading-none tracking-tight tabular-nums">{nim(inPot)}</p>
         <p className="mt-1.5 text-[15px] text-ink-2">
-          of {nim(total)} NIM ≈ <Ngn nim={total} />
+          of {nim(total)} {circle.currency} ≈ <Ngn amount={total} currency={circle.currency} />
         </p>
 
         <div className="mt-4 flex gap-1.5" aria-label={`${paid} of ${circle.size} paid`}>
@@ -140,8 +140,24 @@ function RotationDial({ circle }: { circle: CircleView }) {
 
 // --- Earn & members ----------------------------------------------------------
 
-function EarnCard({ earned }: { earned: number }) {
+function EarnCard({ earned, currency }: { earned: number; currency: CircleView['currency'] }) {
   const shown = useCountUp(earned, 1100)
+  if (currency === 'USDT') {
+    return (
+      <section className="flex items-center gap-3 rounded-card bg-white p-4 pr-5 shadow-soft">
+        <span className="grid size-12 shrink-0 place-items-center rounded-full bg-blush">
+          <CurrencyDollar size={24} weight="bold" />
+        </span>
+        <div>
+          <p className="font-semibold">Saved in USDT</p>
+          <p className="mt-0.5 text-sm leading-snug text-ink-2">The pot holds its dollar value on Polygon. USDT pots do not earn rewards.</p>
+          <Link href="/pool" className="mt-1 inline-block text-sm font-bold text-ink underline decoration-2 underline-offset-4">
+            See the pool on chain
+          </Link>
+        </div>
+      </section>
+    )
+  }
   return (
     <section className="flex items-center gap-3 rounded-card bg-mint-soft p-4 pr-5">
       <Image src="/art/sprout.webp" alt="" width={342} height={400} className="w-[68px] shrink-0" />
@@ -264,7 +280,7 @@ function OwedCard({ circle, reload }: { circle: CircleView; reload: () => void }
   if (circle.yourMisses.length === 0) return null
   async function pay(m: CircleView['yourMisses'][number]) {
     setPaying(m.round)
-    const ok = await payment.run({ nim: m.amount, memo: m.memo, confirmUrl: `/api/circles/${circle.id}/contribution`, extra: { round: m.round } })
+    const ok = await payment.run({ amount: m.amount, currency: circle.currency, memo: m.memo, confirmUrl: `/api/circles/${circle.id}/contribution`, extra: { round: m.round } })
     setPaying(null)
     if (ok) reload()
   }
@@ -275,7 +291,7 @@ function OwedCard({ circle, reload }: { circle: CircleView; reload: () => void }
         {circle.yourMisses.map((m) => (
           <li key={m.round} className="flex items-center gap-3 rounded-[var(--radius-inner)] bg-white p-3">
             <div className="flex-1">
-              <p className="font-semibold">Round {m.round}: {nim(m.amount)} NIM</p>
+              <p className="font-semibold">Round {m.round}: {nim(m.amount)} {circle.currency}</p>
               <p className="text-sm text-ink-2">Goes to {m.to}, who got a short pot</p>
             </div>
             <button onClick={() => pay(m)} disabled={paying !== null} className="press h-10 rounded-full bg-coral px-4 font-bold text-white disabled:opacity-60">
@@ -306,14 +322,15 @@ function ChipInSheet({ circle, open, onOpenChange, onPaid }: { circle: CircleVie
 
   async function approve() {
     if (!circle.memo) return
-    const ok = await payment.run({ nim: circle.contribution, memo: circle.memo, confirmUrl: `/api/circles/${circle.id}/contribution` })
+    const ok = await payment.run({ amount: circle.contribution, currency: circle.currency, memo: circle.memo, confirmUrl: `/api/circles/${circle.id}/contribution` })
     if (ok) {
       onOpenChange(false)
       onPaid()
     }
   }
 
-  const label = payment.state === 'approving' ? 'Approve in Nimiq Pay…' : payment.state === 'confirming' ? 'Confirming on Nimiq…' : 'Approve in Nimiq Pay'
+  const usdt = circle.currency === 'USDT'
+  const label = payment.state === 'approving' ? 'Approve in Nimiq Pay…' : payment.state === 'confirming' ? `Confirming on ${usdt ? 'Polygon' : 'Nimiq'}…` : 'Approve in Nimiq Pay'
   return (
     <Sheet
       open={open}
@@ -323,12 +340,14 @@ function ChipInSheet({ circle, open, onOpenChange, onPaid }: { circle: CircleVie
     >
       <div className="rounded-card bg-white p-5 text-center shadow-soft">
         <p className="font-display text-[44px] font-extrabold leading-none tracking-tight tabular-nums">{nim(circle.contribution)}</p>
-        <p className="mt-1 text-ink-2">NIM ≈ <Ngn nim={circle.contribution} /></p>
+        <p className="mt-1 text-ink-2">
+          {circle.currency} ≈ <Ngn amount={circle.contribution} currency={circle.currency} />
+        </p>
       </div>
 
       <div className="mt-3 divide-y divide-line rounded-card bg-white px-5 py-1 shadow-soft">
         <Row label="To">{circle.name} pot</Row>
-        <Row label="Network fee">Free</Row>
+        <Row label="Network fee">{usdt ? 'About a cent in POL, topped up if you have none' : 'Free'}</Row>
         <Row label="Reference">
           <span className="font-mono text-sm">{circle.memo}</span>
         </Row>
@@ -336,7 +355,7 @@ function ChipInSheet({ circle, open, onOpenChange, onPaid }: { circle: CircleVie
 
       <p className="mt-4 flex gap-2 text-sm leading-snug text-ink-2">
         <ShieldCheck size={20} weight="fill" className="shrink-0 text-mint" />
-        Every contribution is a public Nimiq transaction with this reference, so anyone in the circle can check who paid.
+        Every contribution is a public {usdt ? 'Polygon' : 'Nimiq'} transaction with this reference, so anyone in the circle can check who paid.
       </p>
 
       {payment.error && <p className="mt-3 rounded-[var(--radius-inner)] bg-coral-soft px-4 py-3 text-sm text-coral-ink">{payment.error}</p>}
@@ -379,7 +398,7 @@ function PayoutBanner({ circle }: { circle: CircleView }) {
       </span>
       <span className="flex-1">
         <span className="block font-display text-lg font-extrabold leading-tight">{p.kind === 'late' ? `Late money from ${p.fromName}` : 'Your pot is ready'}</span>
-        <span className="text-sm text-sun-ink">{nim(p.pot + p.bonus, 2)} NIM is waiting for you</span>
+        <span className="text-sm text-sun-ink">{nim(p.pot + p.bonus, 2)} {p.currency} is waiting for you</span>
       </span>
       <ArrowRight size={20} weight="bold" />
     </Link>
@@ -406,9 +425,9 @@ function Filling({ circle, onChange, reload }: { circle: CircleView; onChange: (
         <p className="mt-1 text-[15px] text-lilac-ink">Round 1 starts when every seat is taken. Nobody pays until then.</p>
         <div className="mt-4 grid grid-cols-3 gap-2 text-left">
           {[
-            ['NIM a round', nim(circle.contribution)],
+            [`${circle.currency} a round`, nim(circle.contribution)],
             ['How often', circle.cadence],
-            ['NIM a pot', nim(circle.contribution * circle.size)],
+            [`${circle.currency} a pot`, nim(circle.contribution * circle.size)],
           ].map(([label, value]) => (
             <div key={label} className="rounded-[var(--radius-inner)] bg-white p-3">
               <p className="text-xs font-semibold text-ink-2">{label}</p>
@@ -493,7 +512,7 @@ function Done({ circle, reload }: { circle: CircleView; reload: () => void }) {
           <Image src="/art/friends.webp" alt="" width={1200} height={714} className="mx-auto w-[85%]" />
           <h2 className="mt-4 font-display text-2xl font-extrabold tracking-tight text-mint-ink">Everyone took their turn</h2>
           <p className="mt-1 text-[15px] text-mint-ink">
-            {circle.size} rounds, {nim(circle.size * circle.size * circle.contribution)} NIM saved together.
+            {circle.size} rounds, {nim(circle.size * circle.size * circle.contribution)} {circle.currency} saved together.
           </p>
         </section>
         <MembersCard circle={circle} />
@@ -516,7 +535,7 @@ function Active({ circle, reload }: { circle: CircleView; reload: () => void }) 
         <LateBanner circle={circle} />
         <PotCard circle={circle} />
         <RotationDial circle={circle} />
-        <EarnCard earned={circle.earned} />
+        <EarnCard earned={circle.earned} currency={circle.currency} />
         <MembersCard circle={circle} />
       </div>
 
@@ -529,7 +548,7 @@ function Active({ circle, reload }: { circle: CircleView; reload: () => void }) 
             You&apos;re in for round {circle.round}
           </div>
         ) : (
-          <PrimaryButton onClick={() => setSheet(true)}>Chip in {nim(circle.contribution)} NIM</PrimaryButton>
+          <PrimaryButton onClick={() => setSheet(true)}>Chip in {nim(circle.contribution)} {circle.currency}</PrimaryButton>
         )}
       </BottomBar>
 

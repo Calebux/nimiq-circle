@@ -1,9 +1,11 @@
 import { ApiError, errorResponse, readJsonBody } from '@/lib/errors'
+import { requireSpike } from '@/lib/security'
 import { checkContribution } from '@/lib/nimiq/contribution'
 import { appendLog } from '@/lib/nimiq/pool'
 
 export async function POST(request: Request) {
   try {
+    requireSpike()
     const body = await readJsonBody(request)
     if (typeof body.memo !== 'string' || body.memo.length > 64) throw new ApiError('Missing memo')
     // Whatever Nimiq Pay returned. Finding out what that is, is the point of check 1.

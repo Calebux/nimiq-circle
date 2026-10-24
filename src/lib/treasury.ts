@@ -1,6 +1,7 @@
 import 'server-only'
 import type { User } from './auth'
-import { LUNA, newId, one, run } from './db'
+import { UNIT, type Currency } from './currency'
+import { newId, one, run } from './db'
 import { ApiError } from './errors'
 import { sameAddress } from './nimiq/address'
 import { offrampProvider } from './offramp'
@@ -11,6 +12,9 @@ import { nimUsd } from './pricing'
  * now owned by us) and pays naira through the provider out of a USDT balance we prefunded.
  * Converting the NIM back to USDT happens later, in batches (`npm run treasury -- rebalance`),
  * so a member never waits on a swap.
+ *
+ * USDT savings skip the NIM leg: the member's USDT stays in the Polygon pool (now ours) and the
+ * provider pays the same amount out of the float. No spread, no price risk.
  */
 
 const USDT = 1_000_000 // micro-USDT per USDT
@@ -22,6 +26,7 @@ const env = (key: string, fallback: number) => {
 const settings = () => ({
   /** Our margin on the NIM leg, covering price moves until we rebalance. */
   spreadBps: env('TREASURY_SPREAD_BPS', 150),
+  usdtSpreadBps: env('TREASURY_USDT_SPREAD_BPS', 0),
   quoteTtlMs: env('QUOTE_TTL_SECONDS', 90) * 1000,
   maxPerCashout: env('CASHOUT_MAX_USDT', 250) * USDT,
   maxPerDay: env('CASHOUT_DAILY_MAX_USDT', 1000) * USDT,
@@ -32,7 +37,9 @@ const settings = () => ({
 interface QuoteRow {
   id: string
   address: string
+  /** Amount cashed out, in the smallest unit of `currency` (the column predates USDT). */
   nim: number
+  currency: Currency
   usdt: number
   ngn: number
   nim_usd: number
@@ -71,13 +78,14 @@ async function blocker(usdtMicro: number, ngn: number): Promise<string | null> {
 function publicQuote(q: QuoteRow, unavailable: string | null) {
   return {
     id: q.id,
-    nim: q.nim / LUNA,
+    currency: q.currency,
+    amount: q.nim / UNIT[q.currency],
     usdt: q.usdt / USDT,
     ngn: q.ngn,
     nimUsd: q.nim_usd,
     usdtNgn: q.usdt_ngn,
-    /** Effective NGN per NIM the member gets, all in. */
-    rate: q.ngn / (q.nim / LUNA),
+    /** Effective NGN per unit (NIM or USDT) the member gets, all in. */
+    rate: q.ngn / (q.nim / UNIT[q.currency]),
     feeNgn: q.fee_ngn,
     spreadBps: q.spread_bps,
     expiresAt: q.expires_at,
@@ -87,31 +95,36 @@ function publicQuote(q: QuoteRow, unavailable: string | null) {
 }
 export type PublicQuote = ReturnType<typeof publicQuote>
 
-/** Lock a price for cashing out `nimLuna`: market NIM/USD minus spread, then the provider's USDT → NGN. */
-export async function createQuote(user: User, nimLuna: number) {
-  if (!Number.isInteger(nimLuna) || nimLuna <= 0) throw new ApiError('Nothing to cash out')
+/**
+ * Lock a price for cashing out `amount` (smallest unit): NIM at market NIM/USD minus spread, USDT
+ * one to one; then the provider's USDT → NGN.
+ */
+export async function createQuote(user: User, amount: number, currency: Currency) {
+  if (!Number.isInteger(amount) || amount <= 0) throw new ApiError('Nothing to cash out')
   const s = settings()
-  const price = await nimUsd()
-  const usdtMicro = Math.floor((nimLuna / LUNA) * price * (1 - s.spreadBps / 10_000) * USDT)
+  const price = currency === 'USDT' ? 1 : await nimUsd()
+  const spread = currency === 'USDT' ? s.usdtSpreadBps : s.spreadBps
+  const usdtMicro = Math.floor((amount / UNIT[currency]) * price * (1 - spread / 10_000) * USDT)
   const provider = await offrampProvider().quote({ usdtMicro })
   const row: QuoteRow = {
     id: newId(10),
     address: user.address,
-    nim: nimLuna,
+    nim: amount,
+    currency,
     usdt: usdtMicro,
     ngn: provider.ngnOut,
     nim_usd: price,
     usdt_ngn: provider.rate,
     fee_ngn: provider.feeNgn,
-    spread_bps: s.spreadBps,
+    spread_bps: spread,
     expires_at: Date.now() + s.quoteTtlMs,
     used_at: null,
     created_at: Date.now(),
   }
   await run(
-    `INSERT INTO quotes (id, address, nim, usdt, ngn, nim_usd, usdt_ngn, fee_ngn, spread_bps, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [row.id, row.address, row.nim, row.usdt, row.ngn, row.nim_usd, row.usdt_ngn, row.fee_ngn, row.spread_bps, row.expires_at, row.created_at],
+    `INSERT INTO quotes (id, address, nim, currency, usdt, ngn, nim_usd, usdt_ngn, fee_ngn, spread_bps, expires_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [row.id, row.address, row.nim, row.currency, row.usdt, row.ngn, row.nim_usd, row.usdt_ngn, row.fee_ngn, row.spread_bps, row.expires_at, row.created_at],
   )
   return publicQuote(row, await blocker(usdtMicro, provider.ngnOut))
 }
@@ -123,14 +136,16 @@ export async function createQuote(user: User, nimLuna: number) {
 export async function executeCashout(input: {
   user: User
   quoteId: string
-  nimLuna: number
+  amount: number
+  currency: Currency
   bank: { bankCode: string; accountNumber: string; accountName: string }
   reference: string
 }) {
   const q = await one<QuoteRow>('SELECT * FROM quotes WHERE id = ?', [input.quoteId])
   if (!q || !sameAddress(q.address, input.user.address)) throw new ApiError('That rate is not yours. Please try again.')
+  if (q.currency !== input.currency) throw new ApiError('The amount changed. Please check the new rate.')
   // Yield can tick between quote and claim; allow a hair of drift, never more.
-  if (Math.abs(q.nim - input.nimLuna) > Math.max(LUNA, q.nim * 0.005)) throw new ApiError('The amount changed. Please check the new rate.')
+  if (Math.abs(q.nim - input.amount) > Math.max(UNIT[q.currency], q.nim * 0.005)) throw new ApiError('The amount changed. Please check the new rate.')
   if (q.expires_at < Date.now()) throw new ApiError('That rate expired. Here is a fresh one.', 409)
   const reason = await blocker(q.usdt, q.ngn)
   if (reason) throw new ApiError(reason, 409)
@@ -144,9 +159,10 @@ export async function executeCashout(input: {
     newId(10),
     'cashout',
     -q.usdt,
-    input.nimLuna,
+    // USDT cash-outs leave the member's USDT in the Polygon pool; the treasury holds no new NIM.
+    q.currency === 'NIM' ? input.amount : 0,
     input.reference,
-    `₦${q.ngn} to ${input.bank.accountName} at ${q.nim_usd} USD/NIM`,
+    q.currency === 'NIM' ? `₦${q.ngn} to ${input.bank.accountName} at ${q.nim_usd} USD/NIM` : `₦${q.ngn} to ${input.bank.accountName}, ${(input.amount / USDT).toFixed(2)} USDT kept in the Polygon pool`,
     input.user.dev ? 1 : 0,
     Date.now(),
   ])

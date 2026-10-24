@@ -4,7 +4,8 @@ import path from 'node:path'
 import { createClient, type Client, type InArgs } from '@libsql/client'
 import { serverConfig } from './env'
 
-// Amounts are luna (1 NIM = 100,000 luna) stored as INTEGER. Times are ms since epoch.
+// Amounts are INTEGER in the smallest unit of the circle's or goal's currency (src/lib/currency.ts):
+// luna for NIM, micro for USDT. Times are ms since epoch.
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS users (
     address    TEXT PRIMARY KEY,
@@ -157,7 +158,45 @@ const SCHEMA = [
     nonce      TEXT PRIMARY KEY,
     created_at INTEGER NOT NULL
   )`,
+  // USDT transfers a member reported that are not confirmed yet; the worker finishes them
+  // if the app closes first (Polygon transfers carry no memo the pool history could be scanned for).
+  `CREATE TABLE IF NOT EXISTS evm_pending (
+    tx_hash    TEXT PRIMARY KEY,
+    kind       TEXT NOT NULL,
+    ref_id     TEXT NOT NULL,
+    round      INTEGER,
+    address    TEXT NOT NULL,
+    memo       TEXT NOT NULL,
+    min_amount INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  )`,
+  // POL sent to members so they can pay the gas on a USDT transfer.
+  `CREATE TABLE IF NOT EXISTS gas_drips (
+    id          TEXT PRIMARY KEY,
+    address     TEXT NOT NULL,
+    evm_address TEXT NOT NULL,
+    pol         REAL NOT NULL,
+    tx_hash     TEXT NOT NULL,
+    created_at  INTEGER NOT NULL
+  )`,
 ]
+
+/** Columns added after the first release, as [table, column, definition]. */
+const COLUMNS: [string, string, string][] = [
+  ['circles', 'currency', "TEXT NOT NULL DEFAULT 'NIM'"],
+  ['goals', 'currency', "TEXT NOT NULL DEFAULT 'NIM'"],
+  ['deposits', 'currency', "TEXT NOT NULL DEFAULT 'NIM'"],
+  ['quotes', 'currency', "TEXT NOT NULL DEFAULT 'NIM'"],
+  // The Polygon address a member last paid USDT from; USDT payouts go back there.
+  ['users', 'evm_address', 'TEXT'],
+]
+
+async function addColumns(db: Client) {
+  for (const [table, column, definition] of COLUMNS) {
+    const { rows } = await db.execute(`PRAGMA table_info(${table})`)
+    if (!rows.some((r) => r.name === column)) await db.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+  }
+}
 
 let client: Promise<Client> | undefined
 
@@ -190,6 +229,7 @@ async function open(): Promise<Client> {
   await db.batch(SCHEMA.slice(0, payoutsIndex), 'write')
   await migratePayouts(db)
   await db.batch(SCHEMA.slice(payoutsIndex), 'write')
+  await addColumns(db)
   return db
 }
 

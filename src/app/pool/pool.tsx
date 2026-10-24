@@ -19,6 +19,7 @@ interface Pool {
   earned: number
   covered: boolean
   actions: { kind: string; amount: number; txHash: string | null; at: number }[]
+  usdt: { address: string; held: number | null; owedToMembers: number; covered: boolean } | null
 }
 
 /** nimiq.watch takes `#NQ87+CJDL+…` for addresses and `#<hash>` for transactions. */
@@ -70,6 +71,27 @@ export function PoolScreen() {
           </p>
         </div>
       </section>
+
+      {data.usdt && (
+        <section className="mt-4 rounded-card bg-white p-5 shadow-soft">
+          <p className="text-sm font-semibold text-ink-2">Held on Polygon</p>
+          <p className="mt-1 font-display text-[32px] font-extrabold leading-none tracking-tight tabular-nums">{data.usdt.held === null ? '…' : nim(data.usdt.held, 2)}</p>
+          <p className="mt-1 text-[15px] text-ink-2">USDT, against {nim(data.usdt.owedToMembers, 2)} USDT owed to members</p>
+          {data.usdt.held !== null && (
+            <p className={`mt-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-bold ${data.usdt.covered ? 'bg-mint-soft text-mint-ink' : 'bg-coral-soft text-coral-ink'}`}>
+              <CheckCircle size={16} weight="fill" /> {data.usdt.covered ? 'Every member’s USDT is covered' : 'Short: the operator is topping up'}
+            </p>
+          )}
+          <a
+            href={`https://polygonscan.com/token/0xc2132D05D31c914a87C6611C10748AEb04B58e8F?a=${data.usdt.address}`}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-3 flex items-center gap-1 text-sm font-semibold text-coral-ink underline decoration-2 underline-offset-4"
+          >
+            <span className="break-all font-mono">{data.usdt.address}</span> <ArrowSquareOut size={14} weight="bold" className="shrink-0" />
+          </a>
+        </section>
+      )}
 
       <section className="mt-4 rounded-card bg-white p-5 shadow-soft">
         <h2 className="font-display text-xl font-bold tracking-tight">Where it is</h2>

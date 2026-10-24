@@ -198,6 +198,91 @@ function StakeCheck({ pool, error }: { pool: PoolStatus | null; error: string | 
   )
 }
 
+// --- Check 3 ----------------------------------------------------------------
+
+type Eip1193 = { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> }
+
+const POLYGON = '0x89'
+const USDT_POLYGON = '0xc2132D05D31c914a87C6611C10748AEb04B58e8F'
+/** balanceOf(address) selector, then the address left-padded to 32 bytes. */
+const balanceOfData = (addr: string) => `0x70a08231${addr.slice(2).toLowerCase().padStart(64, '0')}`
+const units = (hex: unknown, decimals: number) => (typeof hex === 'string' && hex !== '0x' ? Number(BigInt(hex)) / 10 ** decimals : null)
+
+interface EvmResult {
+  injected: boolean
+  chainBefore?: string
+  chainAfter?: string
+  accounts?: string[]
+  usdt?: number | null
+  pol?: number | null
+  steps: { step: string; ok: boolean; detail: string }[]
+}
+
+/** Read-only: is window.ethereum there, which chain, which account, what USDT and POL it holds. Nothing is sent. */
+function EvmCheck() {
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<EvmResult | null>(null)
+
+  async function run() {
+    setBusy(true)
+    const steps: EvmResult['steps'] = []
+    const provider = (globalThis as { ethereum?: Eip1193 }).ethereum
+    const out: EvmResult = { injected: Boolean(provider), steps }
+    const step = async <T,>(name: string, fn: () => Promise<T>) => {
+      try {
+        const value = await fn()
+        steps.push({ step: name, ok: true, detail: JSON.stringify(value) })
+        return value
+      } catch (err) {
+        const e = err as { code?: unknown; message?: unknown }
+        steps.push({ step: name, ok: false, detail: `${e?.code ?? ''} ${e?.message ?? String(err)}`.trim() })
+        return undefined
+      }
+    }
+    if (provider) {
+      out.chainBefore = (await step('eth_chainId', () => provider.request({ method: 'eth_chainId' }))) as string | undefined
+      out.accounts = (await step('eth_requestAccounts', () => provider.request({ method: 'eth_requestAccounts' }))) as string[] | undefined
+      if (out.chainBefore?.toLowerCase() !== POLYGON) {
+        await step('wallet_switchEthereumChain', () => provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: POLYGON }] }))
+        out.chainAfter = (await step('eth_chainId (after)', () => provider.request({ method: 'eth_chainId' }))) as string | undefined
+      }
+      const account = out.accounts?.[0]
+      if (account) {
+        out.usdt = units(await step('USDT balanceOf', () => provider.request({ method: 'eth_call', params: [{ to: USDT_POLYGON, data: balanceOfData(account) }, 'latest'] })), 6)
+        out.pol = units(await step('eth_getBalance', () => provider.request({ method: 'eth_getBalance', params: [account, 'latest'] })), 18)
+      }
+    }
+    setResult(out)
+    // Send the outcome to the server log so it can be read from the laptop.
+    post('/api/spike/event', { event: 'evm_check', detail: out }).catch(() => undefined)
+    setBusy(false)
+  }
+
+  return (
+    <Card n={3} title="USDT on Polygon" question="Does Nimiq Pay give Circle a Polygon wallet, and can it read your USDT and POL? Nothing is sent.">
+      <button className={buttonClass} disabled={busy} onClick={run}>
+        {busy ? 'Checking…' : 'Check my USDT wallet'}
+      </button>
+      {result && (
+        <div className="rounded-xl bg-black/5 p-3">
+          <Row label="window.ethereum">{result.injected ? 'yes ✓' : 'NO'}</Row>
+          <Row label="Chain">{result.chainAfter ?? result.chainBefore ?? '—'}{(result.chainAfter ?? result.chainBefore)?.toLowerCase() === POLYGON ? ' (Polygon ✓)' : ''}</Row>
+          <Row label="Account">{result.accounts?.[0] ?? '—'}</Row>
+          <Row label="USDT">{result.usdt ?? '—'}</Row>
+          <Row label="POL (gas)">{result.pol ?? '—'}</Row>
+          <ol className="mt-2 flex flex-col gap-1 text-xs">
+            {result.steps.map((s) => (
+              <li key={s.step} className="break-all font-mono">
+                {s.ok ? '✓' : '✗'} {s.step}: {s.detail}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </Card>
+  )
+}
+
 // --- Page -------------------------------------------------------------------
 
 export function Spike() {
@@ -234,6 +319,7 @@ export function Spike() {
       </header>
       <ContributeCheck pool={pool} />
       <StakeCheck pool={pool} error={poolError} />
+      <EvmCheck />
     </main>
   )
 }

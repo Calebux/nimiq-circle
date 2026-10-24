@@ -1,4 +1,5 @@
-import { ApiError, errorResponse } from '@/lib/errors'
+import { errorResponse } from '@/lib/errors'
+import { requireCron } from '@/lib/security'
 import { tick } from '@/lib/worker'
 
 /**
@@ -7,8 +8,7 @@ import { tick } from '@/lib/worker'
  */
 export async function POST(request: Request) {
   try {
-    const secret = process.env.CRON_SECRET
-    if (!secret || request.headers.get('authorization') !== `Bearer ${secret}`) throw new ApiError('Not allowed', 401)
+    requireCron(request)
     return Response.json(await tick())
   } catch (err) {
     return errorResponse(err)
@@ -18,8 +18,7 @@ export async function POST(request: Request) {
 /** The staking plan right now, with the numbers behind it. Read-only. */
 export async function GET(request: Request) {
   try {
-    const secret = process.env.CRON_SECRET
-    if (!secret || request.headers.get('authorization') !== `Bearer ${secret}`) throw new ApiError('Not allowed', 401)
+    requireCron(request)
     const { planStaking } = await import('@/lib/staking')
     const plan = await planStaking()
     const nim = (l: number) => Math.round(l / 1e5)

@@ -4,6 +4,7 @@ import { Bank as BankIcon, CaretRight, Check, CircleNotch, MagnifyingGlass } fro
 import Image from 'next/image'
 import { useEffect, useState } from 'react'
 import { BANKS, type Bank } from '@/lib/constants'
+import type { Currency } from '@/lib/currency'
 import { BottomBar, PrimaryButton, Screen, Sheet, naira, nim } from './ui'
 import { api } from './wallet'
 
@@ -50,7 +51,8 @@ function BankPicker({ onPick }: { onPick: (bank: Bank) => void }) {
 /** What the member sees and agrees to; locked server-side for a short time (src/lib/treasury.ts). */
 interface Quote {
   id: string
-  nim: number
+  currency: Currency
+  amount: number
   usdt: number
   ngn: number
   nimUsd: number
@@ -86,12 +88,15 @@ function Line({ label, children }: { label: string; children: React.ReactNode })
 export function CashOutSheet({
   open,
   onOpenChange,
-  amountNim,
+  amount,
+  currency,
   onConfirm,
 }: {
   open: boolean
   onOpenChange: (o: boolean) => void
-  amountNim: number
+  /** What is being cashed out, in whole units of `currency`. */
+  amount: number
+  currency: Currency
   onConfirm: (bank: BankChoice) => Promise<void>
 }) {
   const [picking, setPicking] = useState(false)
@@ -122,16 +127,16 @@ export function CashOutSheet({
 
   // Lock a rate when the sheet opens, and again whenever the last one runs out.
   useEffect(() => {
-    if (!open || amountNim <= 0) return
+    if (!open || amount <= 0) return
     let cancelled = false
-    api<Quote>('/api/offramp', { body: { action: 'quote', amount: amountNim } }).then(
+    api<Quote>('/api/offramp', { body: { action: 'quote', amount, currency } }).then(
       (q) => !cancelled && setQuote(q),
       (e: Error) => !cancelled && setError(e.message),
     )
     return () => {
       cancelled = true
     }
-  }, [open, amountNim, quoteTick])
+  }, [open, amount, currency, quoteTick])
   const expired = Boolean(quote) && secondsLeft === 0
   // When the held rate runs out, lock a fresh one.
   useEffect(() => {
@@ -209,9 +214,11 @@ export function CashOutSheet({
           </div>
 
           <div className="mt-2 rounded-card bg-white p-5 shadow-soft">
-            <Line label="You send">{nim(amountNim, 2)} NIM</Line>
-            <Line label="Changed to">{quote ? `${quote.usdt.toFixed(2)} USDT` : '…'}</Line>
-            <Line label="Rate">{quote ? `1 NIM = ₦${quote.rate.toFixed(3)}` : '…'}</Line>
+            <Line label="You send">
+              {nim(amount, 2)} {currency}
+            </Line>
+            {currency === 'NIM' && <Line label="Changed to">{quote ? `${quote.usdt.toFixed(2)} USDT` : '…'}</Line>}
+            <Line label="Rate">{quote ? `1 ${currency} = ₦${quote.rate.toFixed(currency === 'NIM' ? 3 : 2)}` : '…'}</Line>
             <Line label="Bank fee">{quote ? naira(quote.feeNgn) : '…'}</Line>
             <div className="mt-4 flex items-baseline justify-between border-t border-line pt-4">
               <span className="font-semibold">You get</span>
@@ -239,7 +246,8 @@ export function CashOutSheet({
 /** After money leaves the pool: where it went and whether it has landed. */
 export function Sent({
   method,
-  nimAmount,
+  amount,
+  currency,
   ngn,
   bank,
   landed,
@@ -248,7 +256,8 @@ export function Sent({
   backLabel,
 }: {
   method: 'wallet' | 'bank'
-  nimAmount: number
+  amount: number
+  currency: Currency
   ngn: number | null
   bank: string | null
   landed: boolean
@@ -270,7 +279,7 @@ export function Sent({
         <Image src="/art/phone.webp" alt="" width={439} height={600} priority className="mx-auto w-[150px]" />
         <h1 className="mt-5 font-display text-[34px] font-extrabold leading-tight tracking-tight">{landed ? 'Money landed' : 'On its way'}</h1>
         <p className="mt-1 font-display text-[44px] font-extrabold leading-none tracking-tight tabular-nums text-coral-ink">
-          {method === 'bank' && ngn !== null ? naira(ngn) : `${nim(nimAmount, 2)} NIM`}
+          {method === 'bank' && ngn !== null ? naira(ngn) : `${nim(amount, 2)} ${currency}`}
         </p>
         {bank && <p className="mt-2 text-ink-2">to {bank.split(' · ')[1] ?? bank}</p>}
         {simulated && <p className="mt-2 text-xs text-ink-2">Test wallet: simulated, nothing moved on chain.</p>}

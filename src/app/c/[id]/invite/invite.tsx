@@ -9,27 +9,50 @@ import { Avatar, BackLink, BottomBar, PrimaryButton, Screen, nim } from '@/compo
 import { useApi } from '@/components/wallet'
 import type { CircleView } from '@/lib/circles'
 
+/** Copy with the async API, then the old textarea trick; webviews often block the first. */
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    const area = document.createElement('textarea')
+    area.value = text
+    area.setAttribute('readonly', '')
+    area.style.position = 'fixed'
+    area.style.opacity = '0'
+    document.body.appendChild(area)
+    area.select()
+    area.setSelectionRange(0, text.length)
+    let ok = false
+    try {
+      ok = document.execCommand('copy')
+    } catch {}
+    area.remove()
+    return ok
+  }
+}
+
 function useCopy() {
   const [copied, setCopied] = useState<string | null>(null)
+  // Set when copying is blocked outright: the text is then shown to long-press and copy by hand.
+  const [manual, setManual] = useState<string | null>(null)
   async function copy(key: string, text: string) {
-    try {
-      await navigator.clipboard.writeText(text)
+    if (await copyText(text)) {
+      setManual(null)
       setCopied(key)
       setTimeout(() => setCopied((c) => (c === key ? null : c)), 1600)
-    } catch {
-      // Clipboard can be blocked inside the host webview; the code stays visible to type.
-    }
+    } else setManual(text)
   }
-  return { copied, copy }
+  return { copied, manual, copy }
 }
 
 function Invite({ circle }: { circle: CircleView }) {
-  const { copied, copy } = useCopy()
+  const { copied, manual, copy } = useCopy()
   const link = `${window.location.origin}/join/${circle.inviteCode}`
   const full = circle.members.length >= circle.size
 
   async function share() {
-    const text = `Join "${circle.name}", our ${circle.localName} on Nimiq Pay. ${nim(circle.contribution)} NIM a round, ${circle.size} of us. Code ${circle.inviteCode}`
+    const text = `Join "${circle.name}", our ${circle.localName} on Nimiq Pay. ${nim(circle.contribution)} ${circle.currency} a round, ${circle.size} of us. Code ${circle.inviteCode}`
     if (navigator.share) {
       try {
         await navigator.share({ title: circle.name, text, url: link })
@@ -53,7 +76,7 @@ function Invite({ circle }: { circle: CircleView }) {
         <p className="mt-3 text-sm font-semibold text-lilac-ink">{circle.localName}</p>
         <p className="font-display text-3xl font-extrabold tracking-tight">{circle.name}</p>
         <p className="mt-1 text-[15px] text-ink-2">
-          {nim(circle.contribution)} NIM a round · {circle.size} people
+          {nim(circle.contribution)} {circle.currency} a round · {circle.size} people
         </p>
 
         <button type="button" onClick={() => copy('code', circle.inviteCode)} className="press mt-5 flex w-full items-center justify-between rounded-[var(--radius-inner)] bg-white px-5 py-4 shadow-soft">
@@ -69,6 +92,13 @@ function Invite({ circle }: { circle: CircleView }) {
           {copied === 'code' ? 'Code copied' : copied === 'link' ? 'Invite copied, paste it anywhere' : 'Friends open Circle in Nimiq Pay and enter this code'}
         </p>
       </section>
+
+      {manual && (
+        <section className="mt-4 rounded-card bg-sun-soft p-4 text-sm text-sun-ink shadow-soft">
+          <p className="font-semibold">Copying is blocked here. Press and hold to copy this:</p>
+          <textarea readOnly value={manual} rows={4} onFocus={(e) => e.currentTarget.select()} className="mt-2 w-full resize-none rounded-[var(--radius-inner)] bg-white p-3 text-ink outline-none" />
+        </section>
+      )}
 
       <section className="mt-4 rounded-card bg-white p-5 shadow-soft">
         <div className="flex items-baseline justify-between">

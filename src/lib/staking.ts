@@ -25,7 +25,7 @@ const mode = () => (process.env.AUTO_STAKE === 'on' ? 'on' : process.env.AUTO_ST
 const buffer = () => Math.round(Number(process.env.POOL_LIQUID_BUFFER_NIM ?? 50) * LUNA)
 
 /** A ref is "real" if any of its deposits is on chain (dev wallets never are). */
-const REAL = (kind: string, ref: string) => `EXISTS (SELECT 1 FROM deposits d WHERE d.kind = '${kind}' AND d.ref_id = ${ref} AND d.tx_hash NOT LIKE 'mock-%')`
+const REAL = (kind: string, ref: string) => `EXISTS (SELECT 1 FROM deposits d WHERE d.kind = '${kind}' AND d.ref_id = ${ref} AND d.tx_hash NOT LIKE 'mock-%' AND d.currency = 'NIM')`
 
 /** NIM that must be spendable within the horizon, in luna. */
 export async function liquidNeeds() {
@@ -35,13 +35,13 @@ export async function liquidNeeds() {
       (SELECT COALESCE(SUM(pot + bonus), 0) FROM payouts p
         WHERE p.status IN ('claimable', 'sending') AND ${REAL('circle', 'p.circle_id')}) AS claimable,
       (SELECT COALESCE(SUM(d.amount), 0) FROM deposits d JOIN circles c ON c.id = d.ref_id
-        WHERE d.kind = 'circle' AND c.status = 'active' AND d.round = c.round AND d.tx_hash NOT LIKE 'mock-%') AS rounds,
+        WHERE d.kind = 'circle' AND c.status = 'active' AND d.round = c.round AND d.tx_hash NOT LIKE 'mock-%' AND d.currency = 'NIM') AS rounds,
       (SELECT COALESCE(SUM(d.amount), 0) FROM deposits d JOIN goals g ON g.id = d.ref_id
-        WHERE d.kind = 'goal' AND g.status = 'open' AND g.unlock_at IS NULL AND d.tx_hash NOT LIKE 'mock-%')
+        WHERE d.kind = 'goal' AND g.status = 'open' AND g.unlock_at IS NULL AND d.tx_hash NOT LIKE 'mock-%' AND d.currency = 'NIM')
       - (SELECT COALESCE(SUM(w.amount), 0) FROM withdrawals w JOIN goals g ON g.id = w.goal_id
-        WHERE g.unlock_at IS NULL AND COALESCE(w.tx_hash, '') NOT LIKE 'mock-%') AS flexible,
+        WHERE g.unlock_at IS NULL AND g.currency = 'NIM' AND COALESCE(w.tx_hash, '') NOT LIKE 'mock-%') AS flexible,
       (SELECT COALESCE(SUM(d.amount), 0) FROM deposits d JOIN goals g ON g.id = d.ref_id
-        WHERE d.kind = 'goal' AND g.status = 'open' AND g.unlock_at IS NOT NULL AND g.unlock_at <= ? AND d.tx_hash NOT LIKE 'mock-%') AS unlocking`,
+        WHERE d.kind = 'goal' AND g.status = 'open' AND g.unlock_at IS NOT NULL AND g.unlock_at <= ? AND d.tx_hash NOT LIKE 'mock-%' AND d.currency = 'NIM') AS unlocking`,
     [soon],
   )
   // Current-round money only has to wait if the round can close soon. (With INSTANT_PAYOUTS it

@@ -9,7 +9,8 @@ export async function POST(request: Request, ctx: RouteContext<'/api/goals/[id]/
     const { id } = await ctx.params
     const b = await readJsonBody(request)
     const method = b.method === 'bank' ? 'bank' : 'wallet'
-    return Response.json(await withdrawGoal(user, id, method, method === 'bank' ? parseBank(b.bank) : undefined))
+    const evmAddress = typeof b.evmAddress === 'string' ? b.evmAddress : undefined
+    return Response.json(await withdrawGoal(user, id, method, method === 'bank' ? parseBank(b.bank) : undefined, evmAddress))
   } catch (err) {
     return errorResponse(err)
   }

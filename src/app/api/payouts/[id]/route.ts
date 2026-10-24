@@ -13,14 +13,15 @@ export async function GET(_request: Request, ctx: RouteContext<'/api/payouts/[id
   }
 }
 
-/** Claim: { method: 'wallet' } or { method: 'bank', bank: {...} }. */
+/** Claim: { method: 'wallet', evmAddress? } or { method: 'bank', bank: {...} }. evmAddress: USDT payouts' Polygon wallet. */
 export async function POST(request: Request, ctx: RouteContext<'/api/payouts/[id]'>) {
   try {
     const user = await requireUser()
     const { id } = await ctx.params
     const b = await readJsonBody(request)
     const method = b.method === 'bank' ? 'bank' : 'wallet'
-    return Response.json(await claimPayout(user, id, method, method === 'bank' ? parseBank(b.bank) : undefined))
+    const evmAddress = typeof b.evmAddress === 'string' ? b.evmAddress : undefined
+    return Response.json(await claimPayout(user, id, method, method === 'bank' ? parseBank(b.bank) : undefined, evmAddress))
   } catch (err) {
     return errorResponse(err)
   }

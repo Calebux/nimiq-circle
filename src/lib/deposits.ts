@@ -1,9 +1,12 @@
 import 'server-only'
+import { createHmac } from 'node:crypto'
 import type { User } from './auth'
+import type { Currency } from './currency'
 import { all, newId, run } from './db'
 import { serverConfig } from './env'
 import { ApiError } from './errors'
-import { formatAddress, sameAddress } from './nimiq/address'
+import { evmPoolAddress, getUsdtDeposit, sameEvm } from './evm/polygon'
+import { compactAddress, formatAddress, sameAddress } from './nimiq/address'
 import { decodeData } from './nimiq/contribution'
 import { getAccount, getTransaction, getTransactionsByAddress, type ChainTransaction } from './nimiq/rpc'
 
@@ -12,6 +15,18 @@ export type DepositKind = 'circle' | 'goal'
 /** Memos stay well under Nimiq's 64-byte data limit. */
 export const circleMemo = (circleId: string, round: number) => `cc:${circleId}:${round}`
 export const goalMemo = (goalId: string) => `cg:${goalId}`
+
+/**
+ * USDT memos also carry a short tag derived from the member's Nimiq address. A Polygon
+ * transfer is not signed by the Nimiq key, so the tag is what stops someone claiming another
+ * member's transfer by its hash.
+ */
+function userTag(address: string) {
+  const secret = serverConfig().sessionSecret
+  if (!secret) throw new Error('SESSION_SECRET is not set')
+  return createHmac('sha256', secret).update(`usdt:${compactAddress(address)}`).digest('hex').slice(0, 8)
+}
+export const memoFor = (user: Pick<User, 'address'>, base: string, currency: Currency) => (currency === 'USDT' ? `${base}:${userTag(user.address)}` : base)
 
 export interface DepositRow {
   tx_hash: string
@@ -22,6 +37,7 @@ export interface DepositRow {
   amount: number
   memo: string
   status: 'confirmed'
+  currency: Currency
   created_at: number
 }
 
@@ -68,11 +84,11 @@ function confirmed(tx: ChainTransaction) {
   return Boolean(tx.blockNumber) && (tx.confirmations ?? 0) >= serverConfig().nim.minConfirmations && tx.executionResult !== false
 }
 
-async function insert(row: Omit<DepositRow, 'status' | 'created_at'>): Promise<DepositRow> {
+async function insert(row: Omit<DepositRow, 'status' | 'created_at' | 'currency'> & { currency?: Currency }): Promise<DepositRow> {
   await run(
-    `INSERT OR IGNORE INTO deposits (tx_hash, kind, ref_id, round, address, amount, memo, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)`,
-    [row.tx_hash, row.kind, row.ref_id, row.round, row.address, row.amount, row.memo, Date.now()],
+    `INSERT OR IGNORE INTO deposits (tx_hash, kind, ref_id, round, address, amount, memo, status, currency, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?)`,
+    [row.tx_hash, row.kind, row.ref_id, row.round, row.address, row.amount, row.memo, row.currency ?? 'NIM', Date.now()],
   )
   return (await all<DepositRow>('SELECT * FROM deposits WHERE tx_hash = ?', [row.tx_hash]))[0]
 }
@@ -89,10 +105,11 @@ export async function verifyDeposit(input: {
   memo: string
   minAmount: number
   hint: string | null
+  currency: Currency
   /** Dev wallet only: amount the simulated payment carried. */
   devAmount?: number
 }): Promise<DepositResult> {
-  const { user, kind, refId, round, memo, minAmount, hint } = input
+  const { user, kind, refId, round, memo, minAmount, hint, currency } = input
 
   if (hint?.startsWith('mock:')) {
     if (!user.dev || !serverConfig().devWallet) throw new ApiError('Simulated payments are disabled')
@@ -106,8 +123,19 @@ export async function verifyDeposit(input: {
       address: user.address,
       amount: input.devAmount ?? minAmount,
       memo,
+      currency,
     })
     return { status: 'confirmed', deposit }
+  }
+
+  if (currency === 'USDT') {
+    if (!hint || !/^0x[0-9a-f]{64}$/i.test(hint)) throw new ApiError('Missing the transfer from Nimiq Pay')
+    const pending: EvmPendingRow = { tx_hash: hint.toLowerCase(), kind, ref_id: refId, round, address: user.address, memo, min_amount: minAmount, created_at: Date.now() }
+    // Remember it first, so the worker can finish if the app closes before it confirms.
+    await run('INSERT OR IGNORE INTO evm_pending (tx_hash, kind, ref_id, round, address, memo, min_amount, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
+      pending.tx_hash, pending.kind, pending.ref_id, pending.round, pending.address, pending.memo, pending.min_amount, pending.created_at,
+    ])
+    return checkUsdt(pending)
   }
 
   const tx = await findTx(memo, hint)
@@ -148,6 +176,57 @@ export async function reconcile(
     added++
   }
   return added
+}
+
+interface EvmPendingRow {
+  tx_hash: string
+  kind: DepositKind
+  ref_id: string
+  round: number | null
+  address: string
+  memo: string
+  min_amount: number
+  created_at: number
+}
+
+/** Check a reported USDT transfer against what it was for; record it once confirmed. */
+async function checkUsdt(p: EvmPendingRow): Promise<DepositResult> {
+  const drop = () => run('DELETE FROM evm_pending WHERE tx_hash = ?', [p.tx_hash])
+  let tx
+  try {
+    tx = await getUsdtDeposit(p.tx_hash)
+  } catch {
+    await drop()
+    throw new ApiError('That payment was not a USDT transfer')
+  }
+  if (!tx) return { status: 'not_found' }
+  const fail = async (message: string) => {
+    await drop()
+    throw new ApiError(message)
+  }
+  if (!sameEvm(tx.to, evmPoolAddress()) || tx.memo !== p.memo) return fail('That payment was not for this')
+  if (tx.status === 'failed') return fail('That payment failed on the network')
+  if (tx.amount < p.min_amount) return fail('That payment was less than the amount due')
+  if (tx.status === 'pending') return { status: 'pending' }
+  const deposit = await insert({ tx_hash: tx.hash.toLowerCase(), kind: p.kind, ref_id: p.ref_id, round: p.round, address: p.address, amount: tx.amount, memo: p.memo, currency: 'USDT' })
+  // USDT payouts go back to the wallet the member pays from.
+  await run('UPDATE users SET evm_address = ? WHERE address = ?', [tx.from, p.address])
+  await drop()
+  return { status: 'confirmed', deposit }
+}
+
+/** Worker: finish USDT transfers the app reported but stopped watching. Gives up after a day. */
+export async function syncEvmPending() {
+  const done: { kind: DepositKind; refId: string }[] = []
+  for (const p of await all<EvmPendingRow>('SELECT * FROM evm_pending')) {
+    if (Date.now() - p.created_at > 86_400_000) {
+      await run('DELETE FROM evm_pending WHERE tx_hash = ?', [p.tx_hash])
+      continue
+    }
+    const result = await checkUsdt(p).catch(() => null)
+    if (result?.status === 'confirmed') done.push({ kind: p.kind, refId: p.ref_id })
+  }
+  return done
 }
 
 export const isSimulated = (txHash: string | null | undefined) => Boolean(txHash?.startsWith('mock-'))

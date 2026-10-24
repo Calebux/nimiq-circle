@@ -5,11 +5,11 @@ import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { BackLink, BottomBar, PrimaryButton, Screen, nim, useCountUp } from '@/components/ui'
+import { CurrencyPicker } from '@/components/currency'
 import { SignedIn } from '@/components/gate'
 import { Ngn, api, useWallet } from '@/components/wallet'
 import { LOCAL_NAMES } from '@/lib/constants'
-
-const PRESETS = [10000, 25000, 50000, 100000]
+import { PRESETS, type Currency } from '@/lib/currency'
 const MIN_PEOPLE = 2
 const MAX_PEOPLE = 12
 
@@ -45,7 +45,8 @@ function CreateCircleForm() {
   const router = useRouter()
   const [name, setName] = useState('')
   const [localName, setLocalName] = useState<string>('Ajo')
-  const [amount, setAmount] = useState('25000')
+  const [currency, setCurrency] = useState<Currency>('NIM')
+  const [amount, setAmount] = useState(String(PRESETS.NIM.contribution[1]))
   const [cadence, setCadence] = useState<string>('Weekly')
   const [people, setPeople] = useState(6)
   const [order, setOrder] = useState<'join' | 'shuffle'>('join')
@@ -63,7 +64,7 @@ function CreateCircleForm() {
     setError(null)
     try {
       const { id } = await api<{ id: string }>('/api/circles', {
-        body: { name: name.trim(), localName, cadence, contribution, size: people, order },
+        body: { name: name.trim(), localName, cadence, contribution, currency, size: people, order },
       })
       router.push(`/c/${id}/invite`)
     } catch (e) {
@@ -86,10 +87,10 @@ function CreateCircleForm() {
         <p className="max-w-[70%] truncate font-display text-2xl font-extrabold tracking-tight">{name.trim() || 'Your circle'}</p>
         <p className="mt-3 font-display text-[40px] font-extrabold leading-none tracking-tight tabular-nums">{nim(pot)}</p>
         <p className="mt-1 text-[15px] text-ink-2">
-          NIM pot each {unit} ≈ <Ngn nim={contribution * people} />
+          {currency} pot each {unit} ≈ <Ngn amount={contribution * people} currency={currency} />
         </p>
         <p className="mt-3 rounded-[var(--radius-inner)] bg-white/80 px-3 py-2 text-sm">
-          {people} people chip in {nim(contribution)} NIM. Everyone takes the pot once, over {people} {unit}s.
+          {people} people chip in {nim(contribution)} {currency}. Everyone takes the pot once, over {people} {unit}s.
         </p>
       </section>
 
@@ -116,6 +117,16 @@ function CreateCircleForm() {
           </div>
         </Field>
 
+        <Field label="Save in">
+          <CurrencyPicker
+            value={currency}
+            onChange={(c) => {
+              setCurrency(c)
+              setAmount(String(PRESETS[c].contribution[1]))
+            }}
+          />
+        </Field>
+
         <Field label="Each person chips in" htmlFor="amount">
           <div className="flex h-16 items-center gap-2 rounded-[var(--radius-inner)] bg-white px-4 shadow-soft focus-within:ring-2 focus-within:ring-coral">
             <input
@@ -125,10 +136,10 @@ function CreateCircleForm() {
               onChange={(e) => setAmount(e.target.value.replace(/\D/g, '').slice(0, 7))}
               className="min-w-0 flex-1 bg-transparent font-display text-3xl font-extrabold tabular-nums outline-none"
             />
-            <span className="font-semibold text-ink-2">NIM</span>
+            <span className="font-semibold text-ink-2">{currency}</span>
           </div>
           <div className="grid grid-cols-4 gap-2">
-            {PRESETS.map((p) => (
+            {PRESETS[currency].contribution.map((p) => (
               <Pill key={p} selected={contribution === p} onClick={() => setAmount(String(p))}>
                 {nim(p)}
               </Pill>

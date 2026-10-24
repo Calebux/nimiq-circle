@@ -1,6 +1,9 @@
 import 'server-only'
 import type { User } from './auth'
+import type { Currency } from './currency'
+import { one } from './db'
 import { ApiError } from './errors'
+import { isEvmAddress, sendUsdtFromPool } from './evm/polygon'
 import { sendFromPool } from './nimiq/pool-signer'
 import { offrampProvider } from './offramp'
 import { executeCashout } from './treasury'
@@ -34,23 +37,42 @@ export function parseBank(value: unknown): BankDetails {
   return bank
 }
 
+/** Where a member's USDT goes: the Polygon wallet they named, else the one they last paid from. */
+async function usdtDestination(to: User, evmAddress?: string) {
+  if (evmAddress && isEvmAddress(evmAddress)) return evmAddress
+  const row = await one<{ evm_address: string | null }>('SELECT evm_address FROM users WHERE address = ?', [to.address])
+  if (!row?.evm_address) throw new ApiError('Open Circle in Nimiq Pay so we know where to send your USDT')
+  return row.evm_address
+}
+
 /**
- * Move `luna` out of the pool to its owner: as NIM to their wallet, or as naira to a bank.
- * Bank cash-outs never move NIM on chain: the treasury buys it in place and the provider
- * pays from our USDT float.
+ * Move `amount` (smallest unit of `currency`) out of the pool to its owner: to their Nimiq Pay
+ * wallet (NIM on Nimiq, USDT on Polygon), or as naira to a bank. Bank cash-outs never move
+ * money on chain: the treasury takes it in place and the provider pays from our USDT float.
  */
-export async function deliver(input: { to: User; luna: number; memo: string; method: Method; bank?: BankDetails; reference: string }): Promise<Delivery> {
-  const { to, luna, memo, method, reference } = input
+export async function deliver(input: {
+  to: User
+  amount: number
+  currency: Currency
+  memo: string
+  method: Method
+  bank?: BankDetails
+  reference: string
+  /** USDT only: the member's Polygon address in Nimiq Pay right now. */
+  evmAddress?: string
+}): Promise<Delivery> {
+  const { to, amount, currency, memo, method, reference } = input
   invalidateYield()
 
   if (method === 'wallet') {
-    const txHash = to.dev ? `mock-${reference}` : await sendFromPool(to.address, luna, memo)
+    let txHash = `mock-${reference}`
+    if (!to.dev) txHash = currency === 'USDT' ? await sendUsdtFromPool(await usdtDestination(to, input.evmAddress), amount, memo) : await sendFromPool(to.address, amount, memo)
     return { status: 'sent', txHash, ngn: null, providerId: null, bank: null }
   }
 
   const bank = input.bank
   if (!bank) throw new ApiError('Choose a bank account')
-  const { providerId, ngn } = await executeCashout({ user: to, quoteId: bank.quoteId, nimLuna: luna, bank, reference })
+  const { providerId, ngn } = await executeCashout({ user: to, quoteId: bank.quoteId, amount, currency, bank, reference })
   return {
     status: 'cashing',
     // Dev wallets: mark the row simulated so it stays out of the real pool accounting.

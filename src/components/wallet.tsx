@@ -3,6 +3,8 @@
 import type { NimiqProvider } from '@nimiq/mini-app-sdk'
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { CADENCES, NGN_PER_NIM } from '@/lib/constants'
+import { UNIT, type Currency } from '@/lib/currency'
+import { describeEvmError, evmAccount, hasEvmWallet, sendUsdt } from '@/lib/evm/client'
 import { connectNimiq, describeWalletError } from '@/lib/nimiq/client'
 import { naira } from './ui'
 
@@ -15,10 +17,14 @@ export interface Me {
 
 interface Config {
   poolAddress: string | null
+  /** The pool's Polygon address, for USDT. */
+  usdtPoolAddress: string | null
   network: string
   devWallet: boolean
   /** Live NIM → NGN for "≈ ₦" lines; cash-outs always use a locked quote. */
   ngnPerNim: number | null
+  /** The provider's USDT → NGN, for estimates. */
+  ngnPerUsdt: number | null
   /** Round lengths the server accepts (adds a 10-minute one in demo mode). */
   cadences: string[]
 }
@@ -30,16 +36,16 @@ interface Wallet {
   me: Me | null
   inNimiqPay: boolean
   devWallet: boolean
-  /** Live NIM → NGN, for estimates. */
-  ngnPerNim: number
+  /** Live NGN per unit of each currency, for estimates. */
+  ngnPer: Record<Currency, number>
   cadences: string[]
   error: string | null
   /** Resolves true once signed in; false if cancelled or failed (the error is in `error`). */
   signIn: () => Promise<boolean>
   setMe: (me: Me) => void
   signOut: () => Promise<void>
-  /** Ask Nimiq Pay to send NIM to the pool with `memo`. Resolves with the wallet's return value. */
-  pay: (input: { nim: number; memo: string }) => Promise<string>
+  /** Ask Nimiq Pay to pay the pool with `memo` (NIM on Nimiq, USDT on Polygon). Resolves with the wallet's return value. */
+  pay: (input: { amount: number; currency: Currency; memo: string }) => Promise<string>
 }
 
 const WalletContext = createContext<Wallet | null>(null)
@@ -54,6 +60,27 @@ export async function api<T>(url: string, init?: { method?: string; body?: unkno
   const json = await res.json().catch(() => ({}))
   if (!res.ok) throw Object.assign(new Error(json.error ?? `Something went wrong (${res.status})`), { status: res.status })
   return json as T
+}
+
+/** Fallback for "≈ ₦" on USDT until /api/config answers. */
+const NGN_PER_USDT = 1_330
+
+/**
+ * USDT from the member's Polygon wallet in Nimiq Pay: check the balance, have the server top up
+ * POL for the fee if they have none, then send. Resolves with the transaction hash.
+ */
+async function payUsdt({ amount, memo, to }: { amount: number; memo: string; to: string | null }) {
+  if (!to) throw new Error('USDT payments are not set up yet')
+  try {
+    const from = await evmAccount()
+    const micro = Math.round(amount * UNIT.USDT)
+    // The server reads the balance from Polygon itself, and only tops up gas if the USDT is there.
+    const g = await api<{ usdt: number; gas: string; maxFeePerGas: string; maxPriorityFeePerGas: string }>('/api/gas', { body: { address: from, micro } })
+    if (g.usdt < micro) throw new Error(`You have ${(g.usdt / UNIT.USDT).toFixed(2)} USDT on Polygon in Nimiq Pay. Add a bit more and try again.`)
+    return await sendUsdt({ from, to, micro, memo, gas: { gas: g.gas, maxFeePerGas: g.maxFeePerGas, maxPriorityFeePerGas: g.maxPriorityFeePerGas } })
+  } catch (err) {
+    throw new Error(describeEvmError(err))
+  }
 }
 
 /** Nimiq Pay rejects payments until its wallet has synced (spike check 1). Wait up to ~15 s. */
@@ -129,15 +156,16 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const pay = useCallback(
-    async ({ nim, memo }: { nim: number; memo: string }) => {
+    async ({ amount, currency, memo }: { amount: number; currency: Currency; memo: string }) => {
       if (!nimiq) {
         if (me?.dev) return `mock:${memo}`
         throw new Error('Open Circle inside Nimiq Pay to pay')
       }
+      if (currency === 'USDT') return payUsdt({ amount, memo, to: config?.usdtPoolAddress ?? null })
       if (!config?.poolAddress) throw new Error('Payments are not set up yet')
       await waitForSync(nimiq)
       try {
-        return await nimiq.sendBasicTransactionWithData({ recipient: config.poolAddress, value: Math.round(nim * 100_000), data: memo })
+        return await nimiq.sendBasicTransactionWithData({ recipient: config.poolAddress, value: Math.round(amount * UNIT.NIM), data: memo })
       } catch (err) {
         throw new Error((await describeWalletError(err)).text)
       }
@@ -147,7 +175,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <WalletContext.Provider
-      value={{ phase, me, inNimiqPay: Boolean(nimiq), devWallet: Boolean(config?.devWallet), ngnPerNim: config?.ngnPerNim ?? NGN_PER_NIM, cadences: config?.cadences ?? [...CADENCES], error, signIn, signOut, setMe, pay }}
+      value={{ phase, me, inNimiqPay: Boolean(nimiq), devWallet: Boolean(config?.devWallet), ngnPer: { NIM: config?.ngnPerNim ?? NGN_PER_NIM, USDT: config?.ngnPerUsdt ?? NGN_PER_USDT }, cadences: config?.cadences ?? [...CADENCES], error, signIn, signOut, setMe, pay }}
     >
       {children}
     </WalletContext.Provider>
@@ -194,11 +222,11 @@ export function usePayment() {
   const [error, setError] = useState<string | null>(null)
 
   const run = useCallback(
-    async (input: { nim: number; memo: string; confirmUrl: string; extra?: Record<string, unknown> }) => {
+    async (input: { amount: number; currency: Currency; memo: string; confirmUrl: string; extra?: Record<string, unknown> }) => {
       setError(null)
       setState('approving')
       try {
-        const hint = await pay({ nim: input.nim, memo: input.memo })
+        const hint = await pay({ amount: input.amount, currency: input.currency, memo: input.memo })
         setState('confirming')
         const started = Date.now()
         while (Date.now() - started < 3 * 60_000) {
@@ -222,7 +250,17 @@ export function usePayment() {
   return { state, error, run, reset: () => setState('idle') }
 }
 
-/** "₦1,234" for an amount of NIM at the live rate. Estimates only. */
-export function Ngn({ nim }: { nim: number }) {
-  return <>{naira(nim * useWallet().ngnPerNim)}</>
+/** Where "Send to Nimiq Pay" pays out: USDT goes to the member's Polygon address in Nimiq Pay. */
+export async function payoutTarget(currency: Currency): Promise<{ evmAddress?: string }> {
+  if (currency !== 'USDT' || !hasEvmWallet()) return {}
+  try {
+    return { evmAddress: await evmAccount() }
+  } catch (err) {
+    throw new Error(describeEvmError(err))
+  }
+}
+
+/** "₦1,234" for an amount of NIM or USDT at the live rate. Estimates only. */
+export function Ngn({ amount, currency }: { amount: number; currency: Currency }) {
+  return <>{naira(amount * useWallet().ngnPer[currency])}</>
 }

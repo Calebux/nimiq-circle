@@ -6,10 +6,10 @@ import { PrimaryButton, SecondaryButton, Sheet, nim } from '@/components/ui'
 import { Ngn, api, useWallet } from '@/components/wallet'
 import type { CircleView } from '@/lib/circles'
 import { LOCAL_NAMES } from '@/lib/constants'
+import { PRESETS } from '@/lib/currency'
 
 const MIN_SIZE = 2
 const MAX_SIZE = 12
-const PRESETS = [10000, 25000, 50000, 100000]
 
 function Pill({ selected, onClick, children }: { selected: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
@@ -57,7 +57,7 @@ export function EditCircleSheet({ circle, open, onOpenChange, onSaved }: { circl
     setSaving(true)
     setError(null)
     try {
-      const updated = await api<CircleView>(`/api/circles/${circle.id}`, { method: 'PATCH', body: { name, localName, cadence, contribution, size, order } })
+      const updated = await api<CircleView>(`/api/circles/${circle.id}`, { method: 'PATCH', body: { name, localName, cadence, contribution, currency: circle.currency, size, order } })
       onSaved(updated)
       onOpenChange(false)
     } catch (e) {
@@ -116,10 +116,10 @@ export function EditCircleSheet({ circle, open, onOpenChange, onSaved }: { circl
               onChange={(e) => setAmount(e.target.value.replace(/\D/g, '').slice(0, 7))}
               className="min-w-0 flex-1 bg-transparent font-display text-2xl font-extrabold tabular-nums outline-none"
             />
-            <span className="font-semibold text-ink-2">NIM</span>
+            <span className="font-semibold text-ink-2">{circle.currency}</span>
           </div>
           <div className="grid grid-cols-4 gap-2">
-            {PRESETS.map((p) => (
+            {PRESETS[circle.currency].contribution.map((p) => (
               <Pill key={p} selected={contribution === p} onClick={() => setAmount(String(p))}>
                 {nim(p)}
               </Pill>
@@ -161,7 +161,10 @@ export function EditCircleSheet({ circle, open, onOpenChange, onSaved }: { circl
         </section>
 
         <p className="rounded-[var(--radius-inner)] bg-coral-soft px-4 py-3 text-sm text-coral-ink">
-          Pot each round: <strong>{nim(contribution * size)} NIM</strong> ≈ <Ngn nim={contribution * size} />
+          Pot each round: <strong>
+            {nim(contribution * size)} {circle.currency}
+          </strong>{' '}
+          ≈ <Ngn amount={contribution * size} currency={circle.currency} />
         </p>
       </div>
 
@@ -198,17 +201,17 @@ export function StartNowSheet({ circle, open, onOpenChange, onStarted }: { circl
       <div className="grid grid-cols-2 gap-2">
         <div className="rounded-[var(--radius-inner)] bg-white p-4 shadow-soft">
           <p className="text-xs font-semibold text-ink-2">Planned</p>
-          <p className="font-display text-xl font-extrabold tabular-nums text-ink-2 line-through decoration-2">{nim(circle.contribution * circle.size)} NIM</p>
+          <p className="font-display text-xl font-extrabold tabular-nums text-ink-2 line-through decoration-2">{nim(circle.contribution * circle.size)} {circle.currency}</p>
           <p className="text-sm text-ink-2">{circle.size} rounds</p>
         </div>
         <div className="rounded-[var(--radius-inner)] bg-coral-soft p-4 shadow-soft">
           <p className="text-xs font-semibold text-coral-ink">Each pot now</p>
-          <p className="font-display text-xl font-extrabold tabular-nums">{nim(circle.contribution * joined)} NIM</p>
+          <p className="font-display text-xl font-extrabold tabular-nums">{nim(circle.contribution * joined)} {circle.currency}</p>
           <p className="text-sm text-ink-2">{joined} rounds</p>
         </div>
       </div>
       <p className="mt-4 text-[15px] text-ink-2">
-        Everyone still chips in {nim(circle.contribution)} NIM {circle.cadence.toLowerCase()}. Round 1 starts now, and nobody else can join.
+        Everyone still chips in {nim(circle.contribution)} {circle.currency} {circle.cadence.toLowerCase()}. Round 1 starts now, and nobody else can join.
       </p>
       <ErrorNote error={error} />
       <div className="mt-5">
