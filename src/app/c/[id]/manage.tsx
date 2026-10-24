@@ -2,14 +2,14 @@
 
 import { Minus, Plus, Shuffle, UsersThree } from '@phosphor-icons/react/dist/ssr'
 import { useState } from 'react'
-import { PrimaryButton, SecondaryButton, Sheet, naira, nim } from '@/components/ui'
-import { api } from '@/components/wallet'
+import { PrimaryButton, SecondaryButton, Sheet, nim } from '@/components/ui'
+import { Ngn, api } from '@/components/wallet'
 import type { CircleView } from '@/lib/circles'
-import { CADENCES, LOCAL_NAMES, NGN_PER_NIM } from '@/lib/constants'
+import { CADENCES, LOCAL_NAMES } from '@/lib/constants'
 
 const MIN_SIZE = 2
 const MAX_SIZE = 12
-const PRESETS = [1000, 2500, 5000, 10000]
+const PRESETS = [10000, 25000, 50000, 100000]
 
 function Pill({ selected, onClick, children }: { selected: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
@@ -160,7 +160,7 @@ export function EditCircleSheet({ circle, open, onOpenChange, onSaved }: { circl
         </section>
 
         <p className="rounded-[var(--radius-inner)] bg-coral-soft px-4 py-3 text-sm text-coral-ink">
-          Pot each round: <strong>{nim(contribution * size)} NIM</strong> ≈ {naira(contribution * size * NGN_PER_NIM)}
+          Pot each round: <strong>{nim(contribution * size)} NIM</strong> ≈ <Ngn nim={contribution * size} />
         </p>
       </div>
 

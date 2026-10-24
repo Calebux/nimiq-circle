@@ -9,7 +9,8 @@
     "lint": "eslint",
     "pool": "node --env-file-if-exists=.env.local scripts/pool.mjs",
     "typecheck": "tsc --noEmit",
-    "tunnel": "cloudflared tunnel --no-autoupdate --protocol http2 --url http://localhost:3300"
+    "tunnel": "cloudflared tunnel --no-autoupdate --protocol http2 --url http://localhost:3300",
+    "treasury": "node --env-file-if-exists=.env.local scripts/treasury.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",

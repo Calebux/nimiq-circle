@@ -91,6 +91,33 @@ const SCHEMA = [
     provider_id TEXT,
     created_at  INTEGER NOT NULL
   )`,
+  // A locked cash-out price: NIM -> USDT (market minus spread) -> NGN (provider). Used once.
+  `CREATE TABLE IF NOT EXISTS quotes (
+    id           TEXT PRIMARY KEY,
+    address      TEXT NOT NULL,
+    nim          INTEGER NOT NULL,
+    usdt         INTEGER NOT NULL,
+    ngn          INTEGER NOT NULL,
+    nim_usd      REAL NOT NULL,
+    usdt_ngn     REAL NOT NULL,
+    fee_ngn      INTEGER NOT NULL,
+    spread_bps   INTEGER NOT NULL,
+    expires_at   INTEGER NOT NULL,
+    used_at      INTEGER,
+    created_at   INTEGER NOT NULL
+  )`,
+  // Treasury books. usdt in micro-USDT, nim in luna, both signed: the float and the NIM we hold
+  // are plain sums. Simulated rows (dev wallets) never touch the real totals.
+  `CREATE TABLE IF NOT EXISTS treasury_ledger (
+    id         TEXT PRIMARY KEY,
+    kind       TEXT NOT NULL,
+    usdt       INTEGER NOT NULL,
+    nim        INTEGER NOT NULL,
+    ref        TEXT,
+    note       TEXT,
+    simulated  INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS challenges (
     nonce      TEXT PRIMARY KEY,
     created_at INTEGER NOT NULL

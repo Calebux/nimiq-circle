@@ -4,12 +4,12 @@ import { Minus, Plus, Shuffle, UsersThree } from '@phosphor-icons/react/dist/ssr
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { BackLink, BottomBar, PrimaryButton, Screen, naira, nim, useCountUp } from '@/components/ui'
+import { BackLink, BottomBar, PrimaryButton, Screen, nim, useCountUp } from '@/components/ui'
 import { SignedIn } from '@/components/gate'
-import { api } from '@/components/wallet'
-import { CADENCES, LOCAL_NAMES, NGN_PER_NIM } from '@/lib/constants'
+import { Ngn, api } from '@/components/wallet'
+import { CADENCES, LOCAL_NAMES } from '@/lib/constants'
 
-const PRESETS = [1000, 2500, 5000, 10000]
+const PRESETS = [10000, 25000, 50000, 100000]
 const MIN_PEOPLE = 2
 const MAX_PEOPLE = 12
 
@@ -44,7 +44,7 @@ function CreateCircleForm() {
   const router = useRouter()
   const [name, setName] = useState('')
   const [localName, setLocalName] = useState<string>('Ajo')
-  const [amount, setAmount] = useState('2500')
+  const [amount, setAmount] = useState('25000')
   const [cadence, setCadence] = useState<string>('Weekly')
   const [people, setPeople] = useState(6)
   const [order, setOrder] = useState<'join' | 'shuffle'>('join')
@@ -85,7 +85,7 @@ function CreateCircleForm() {
         <p className="max-w-[70%] truncate font-display text-2xl font-extrabold tracking-tight">{name.trim() || 'Your circle'}</p>
         <p className="mt-3 font-display text-[40px] font-extrabold leading-none tracking-tight tabular-nums">{nim(pot)}</p>
         <p className="mt-1 text-[15px] text-ink-2">
-          NIM pot each {unit} ≈ {naira(contribution * people * NGN_PER_NIM)}
+          NIM pot each {unit} ≈ <Ngn nim={contribution * people} />
         </p>
         <p className="mt-3 rounded-[var(--radius-inner)] bg-white/80 px-3 py-2 text-sm">
           {people} people chip in {nim(contribution)} NIM. Everyone takes the pot once, over {people} {unit}s.

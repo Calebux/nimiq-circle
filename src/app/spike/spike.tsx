@@ -1,11 +1,10 @@
 'use client'
 
 import type { NimiqProvider } from '@nimiq/mini-app-sdk'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { connectNimiq, describeWalletError, hostNetwork } from '@/lib/nimiq/client'
 import type { ContributionCheck } from '@/lib/nimiq/contribution'
 import type { PoolStatus } from '@/lib/nimiq/pool'
-import type { OfframpPayout, OfframpQuote } from '@/lib/offramp/types'
 
 const LUNA = 100_000
 const POLL_MS = 3_000
@@ -199,111 +198,6 @@ function StakeCheck({ pool, error }: { pool: PoolStatus | null; error: string | 
   )
 }
 
-// --- Check 3 ----------------------------------------------------------------
-
-function PayoutCheck() {
-  const [bankCode, setBankCode] = useState('058')
-  const [accountNumber, setAccountNumber] = useState('')
-  const [accountName, setAccountName] = useState<string | null>(null)
-  const [amount, setAmount] = useState('100')
-  const [quote, setQuote] = useState<(OfframpQuote & { provider: string; accepts: string[] }) | null>(null)
-  const [payout, setPayout] = useState<OfframpPayout | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  const run = useCallback(async (step: () => Promise<void>) => {
-    setBusy(true)
-    setError(null)
-    try {
-      await step()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-    setBusy(false)
-  }, [])
-
-  const payoutId = payout?.id
-  const payoutDone = payout?.status === 'paid' || payout?.status === 'failed'
-  useEffect(() => {
-    if (!payoutId || payoutDone) return
-    const timer = setInterval(() => post<OfframpPayout>('/api/spike/payout', { action: 'get', id: payoutId }).then(setPayout, () => undefined), POLL_MS)
-    return () => clearInterval(timer)
-  }, [payoutId, payoutDone])
-
-  return (
-    <Card n={3} title="Cash out to a bank" question="Does the provider resolve the account, quote NIM → NGN and pay out, and how long does the naira take to land?">
-      <div className="flex gap-2">
-        <input className={`${inputClass} w-20`} placeholder="Bank" value={bankCode} onChange={(e) => setBankCode(e.target.value)} />
-        <input
-          className={`${inputClass} min-w-0 flex-1`}
-          placeholder="Account number"
-          inputMode="numeric"
-          value={accountNumber}
-          onChange={(e) => {
-            setAccountNumber(e.target.value.replace(/\D/g, '').slice(0, 10))
-            setAccountName(null)
-          }}
-        />
-      </div>
-      <button
-        className={buttonClass}
-        disabled={busy || accountNumber.length !== 10}
-        onClick={() => run(async () => setAccountName((await post<{ accountName: string }>('/api/spike/payout', { action: 'resolve', bankCode, accountNumber })).accountName))}
-      >
-        Resolve account
-      </button>
-      {accountName && <Row label="Account name">{accountName}</Row>}
-      <div className="flex gap-2">
-        <input className={`${inputClass} w-24`} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
-        <button
-          className={`${buttonClass} flex-1`}
-          disabled={busy || !(Number(amount) > 0)}
-          onClick={() => run(async () => setQuote(await post('/api/spike/payout', { action: 'quote', amount: Math.round(Number(amount) * LUNA) })))}
-        >
-          Quote {amount} NIM
-        </button>
-      </div>
-      {quote && (
-        <div className="rounded-xl bg-black/5 p-3">
-          <Row label="Provider">{quote.provider}</Row>
-          <Row label="Accepts">{quote.accepts.join(', ')}</Row>
-          <Row label="Rate">₦{quote.rate} / NIM</Row>
-          <Row label="Fee">₦{quote.feeNgn.toLocaleString()}</Row>
-          <Row label="They receive">₦{quote.ngnOut.toLocaleString()}</Row>
-        </div>
-      )}
-      <button
-        className={buttonClass}
-        disabled={busy || !quote || !accountName}
-        onClick={() =>
-          run(async () =>
-            setPayout(
-              await post('/api/spike/payout', {
-                action: 'create',
-                quoteId: quote?.id,
-                bankCode,
-                accountNumber,
-                accountName,
-                reference: `circle:spike:${Date.now()}`,
-              }),
-            ),
-          )
-        }
-      >
-        Send payout
-      </button>
-      {payout && (
-        <div className="rounded-xl bg-black/5 p-3">
-          <Row label="Status">{payout.status}</Row>
-          {payout.depositAddress && <Row label="Pool must send to">{payout.depositAddress}</Row>}
-          {payout.paidAt && <Row label="Landed after">{((payout.paidAt - payout.createdAt) / 1000).toFixed(1)} s</Row>}
-        </div>
-      )}
-      {error && <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-    </Card>
-  )
-}
-
 // --- Page -------------------------------------------------------------------
 
 export function Spike() {
@@ -336,11 +230,10 @@ export function Spike() {
     <main className="mx-auto flex w-full max-w-md flex-col gap-4 p-4">
       <header>
         <h1 className="text-2xl font-extrabold">Circle spike</h1>
-        <p className="text-sm text-black/60">Three checks before the build: contribute, stake, cash out.</p>
+        <p className="text-sm text-black/60">Pre-build checks: contribute and stake. Cash-out now runs through the app&apos;s treasury.</p>
       </header>
       <ContributeCheck pool={pool} />
       <StakeCheck pool={pool} error={poolError} />
-      <PayoutCheck />
     </main>
   )
 }

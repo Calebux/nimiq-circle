@@ -14,6 +14,14 @@ A savings circle (ajo / tanda / susu / chama) for Nimiq Pay: members contribute 
 
 **How money moves.** One pool wallet holds every circle and goal. Members pay it from Nimiq Pay with a memo (`cc:<circle>:<round>`, `cg:<goal>`); the server only counts a deposit once it is on chain, from the signed-in wallet, with the right memo and amount. Payouts and withdrawals are signed by the pool key on the server. Locked goals are enforced server-side. Idle NIM is staked; yield = what the pool really holds on chain minus what it owes minus `POOL_FLOAT_NIM`, shared by balance.
 
+**Cash-out (float model).** The provider only takes USDT, so the app sits in the middle. The cash-out sheet locks a quote for 90 s: NIM → USDT at the CoinGecko price minus `TREASURY_SPREAD_BPS`, then USDT → NGN at the provider's rate. On confirm, the treasury buys the member's NIM where it sits in the pool and the provider pays the bank from our prefunded USDT float, so no swap is in the member's path. Converting held NIM back to USDT happens in batches. Guards: quote expiry, one use per quote, owner and amount checks, per-payout and daily caps, a minimum, and "float too low" (the pot stays claimable). Every movement is a row in `treasury_ledger`.
+
+```bash
+npm run treasury -- status            # float, NIM held, P&L
+npm run treasury -- topup 100         # record USDT sent to the provider
+npm run treasury -- rebalance --to <exchange address>   # swap held NIM back to USDT
+```
+
 **Sign-in.** Nimiq Pay `sign()` over a one-time challenge, verified with `@nimiq/core` (sha256 of the `\x16Nimiq Signed Message:\n` prefixed message, Ed25519), then an HMAC session cookie.
 
 **Dev wallet.** With `DEV_WALLET=1` (never in production) a desktop browser gets a throwaway test wallet and simulated payments, so multi-person flows can be clicked through without phones. `INSTANT_PAYOUTS=1` pays a round as soon as everyone is in.

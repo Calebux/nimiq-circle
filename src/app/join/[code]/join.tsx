@@ -5,10 +5,9 @@ import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { Splash } from '@/components/gate'
-import { Avatar, BackLink, BottomBar, PrimaryButton, Screen, naira, nim } from '@/components/ui'
-import { api, useApi, useWallet } from '@/components/wallet'
+import { Avatar, BackLink, BottomBar, PrimaryButton, Screen, nim } from '@/components/ui'
+import { Ngn, api, useApi, useWallet } from '@/components/wallet'
 import type { CirclePreview } from '@/lib/circles'
-import { NGN_PER_NIM } from '@/lib/constants'
 
 export function JoinScreen({ code }: { code: string }) {
   const router = useRouter()
@@ -63,7 +62,7 @@ export function JoinScreen({ code }: { code: string }) {
           </div>
         </div>
         <p className="mt-3 text-sm text-lilac-ink">
-          {circle.cadence}, {circle.size} people. Your pot ≈ {naira(circle.contribution * circle.size * NGN_PER_NIM)}.
+          {circle.cadence}, {circle.size} people. Your pot ≈ <Ngn nim={circle.contribution * circle.size} />.
         </p>
       </section>
 

@@ -1,7 +1,7 @@
 // Fixed lists the UI picks from. Amount and payment state lives in the database.
 
-/** Estimate only, for "≈ ₦" lines. Real numbers come from the off-ramp quote. */
-export const NGN_PER_NIM = 1.6
+/** Fallback for "≈ ₦" lines until /api/config returns the live rate (CoinGecko × provider). */
+export const NGN_PER_NIM = 0.36
 
 export const LOCAL_NAMES = ['Ajo', 'Esusu', 'Tanda', 'Susu', 'Chama', 'Pardner', 'Hui', 'Chit'] as const
 

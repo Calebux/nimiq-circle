@@ -2,7 +2,9 @@
 
 import type { NimiqProvider } from '@nimiq/mini-app-sdk'
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { NGN_PER_NIM } from '@/lib/constants'
 import { connectNimiq, describeWalletError } from '@/lib/nimiq/client'
+import { naira } from './ui'
 
 export interface Me {
   address: string
@@ -15,6 +17,8 @@ interface Config {
   poolAddress: string | null
   network: string
   devWallet: boolean
+  /** Live NIM → NGN for "≈ ₦" lines; cash-outs always use a locked quote. */
+  ngnPerNim: number | null
 }
 
 type Phase = 'loading' | 'signed-out' | 'signing-in' | 'ready'
@@ -24,6 +28,8 @@ interface Wallet {
   me: Me | null
   inNimiqPay: boolean
   devWallet: boolean
+  /** Live NIM → NGN, for estimates. */
+  ngnPerNim: number
   error: string | null
   /** Resolves true once signed in; false if cancelled or failed (the error is in `error`). */
   signIn: () => Promise<boolean>
@@ -130,7 +136,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   )
 
   return (
-    <WalletContext.Provider value={{ phase, me, inNimiqPay: Boolean(nimiq), devWallet: Boolean(config?.devWallet), error, signIn, setMe, pay }}>
+    <WalletContext.Provider
+      value={{ phase, me, inNimiqPay: Boolean(nimiq), devWallet: Boolean(config?.devWallet), ngnPerNim: config?.ngnPerNim ?? NGN_PER_NIM, error, signIn, setMe, pay }}
+    >
       {children}
     </WalletContext.Provider>
   )
@@ -202,4 +210,9 @@ export function usePayment() {
   )
 
   return { state, error, run, reset: () => setState('idle') }
+}
+
+/** "₦1,234" for an amount of NIM at the live rate. Estimates only. */
+export function Ngn({ nim }: { nim: number }) {
+  return <>{naira(nim * useWallet().ngnPerNim)}</>
 }

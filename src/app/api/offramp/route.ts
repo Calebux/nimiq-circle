@@ -1,23 +1,23 @@
 import { requireUser } from '@/lib/auth'
+import { LUNA } from '@/lib/db'
 import { ApiError, errorResponse, readJsonBody } from '@/lib/errors'
 import { offrampProvider } from '@/lib/offramp'
+import { createQuote } from '@/lib/treasury'
 
-/** Account-name lookup and NIM → NGN quote for the cash-out sheet. */
+/** Account-name lookup, and a locked NIM → NGN quote for the cash-out sheet. */
 export async function POST(request: Request) {
   try {
-    await requireUser()
+    const user = await requireUser()
     const b = await readJsonBody(request)
-    const provider = offrampProvider()
     try {
       if (b.action === 'resolve') {
         if (typeof b.bankCode !== 'string' || typeof b.accountNumber !== 'string') throw new ApiError('Missing bank details')
-        return Response.json(await provider.resolveAccount({ bankCode: b.bankCode, accountNumber: b.accountNumber }))
+        return Response.json(await offrampProvider().resolveAccount({ bankCode: b.bankCode, accountNumber: b.accountNumber }))
       }
       if (b.action === 'quote') {
         const nim = Number(b.amount)
         if (!(nim > 0)) throw new ApiError('Missing amount')
-        const q = await provider.quote({ asset: 'NIM', amount: Math.round(nim * 100_000) })
-        return Response.json({ rate: q.rate, feeNgn: q.feeNgn, ngnOut: q.ngnOut })
+        return Response.json(await createQuote(user, Math.round(nim * LUNA)))
       }
       throw new ApiError('Unknown action')
     } catch (err) {

@@ -12,6 +12,8 @@ export interface BankChoice {
   bankName: string
   accountNumber: string
   accountName: string
+  /** The locked rate this cash-out must use. */
+  quoteId: string
 }
 
 function BankPicker({ onPick }: { onPick: (bank: Bank) => void }) {
@@ -45,13 +47,42 @@ function BankPicker({ onPick }: { onPick: (bank: Bank) => void }) {
   )
 }
 
+/** What the member sees and agrees to; locked server-side for a short time (src/lib/treasury.ts). */
 interface Quote {
+  id: string
+  nim: number
+  usdt: number
+  ngn: number
+  nimUsd: number
+  usdtNgn: number
   rate: number
   feeNgn: number
-  ngnOut: number
+  spreadBps: number
+  expiresAt: number
+  available: boolean
+  unavailable: string | null
 }
 
-/** Bank, account number (name looked up as soon as it has 10 digits), live quote, confirm. */
+function useCountdown(until: number | null) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!until) return
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [until])
+  return until ? Math.max(0, Math.round((until - now) / 1000)) : 0
+}
+
+function Line({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="mt-2 flex justify-between gap-3 text-[15px] first:mt-0">
+      <span className="text-ink-2">{label}</span>
+      <span className="text-right font-semibold tabular-nums">{children}</span>
+    </div>
+  )
+}
+
+/** Bank, account number (name looked up at 10 digits), a locked rate with its breakdown, confirm. */
 export function CashOutSheet({
   open,
   onOpenChange,
@@ -68,8 +99,10 @@ export function CashOutSheet({
   const [account, setAccount] = useState('')
   const [resolved, setResolved] = useState<{ key: string; name: string } | null>(null)
   const [quote, setQuote] = useState<Quote | null>(null)
+  const [quoteTick, setQuoteTick] = useState(0)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const secondsLeft = useCountdown(quote?.expiresAt ?? null)
 
   const key = `${bank.code}:${account}`
   const name = resolved?.key === key ? resolved.name : null
@@ -87,6 +120,7 @@ export function CashOutSheet({
     }
   }, [bank, account])
 
+  // Lock a rate when the sheet opens, and again whenever the last one runs out.
   useEffect(() => {
     if (!open || amountNim <= 0) return
     let cancelled = false
@@ -97,21 +131,31 @@ export function CashOutSheet({
     return () => {
       cancelled = true
     }
-  }, [open, amountNim])
+  }, [open, amountNim, quoteTick])
+  const expired = Boolean(quote) && secondsLeft === 0
+  // When the held rate runs out, lock a fresh one.
+  useEffect(() => {
+    if (!open || !quote) return
+    const id = setTimeout(() => setQuoteTick((t) => t + 1), Math.max(0, quote.expiresAt - Date.now()) + 250)
+    return () => clearTimeout(id)
+  }, [open, quote])
 
   async function send() {
-    if (!name) return
+    if (!name || !quote) return
     setSending(true)
     setError(null)
     try {
-      await onConfirm({ bankCode: bank.code, bankName: bank.short, accountNumber: account, accountName: name })
+      await onConfirm({ bankCode: bank.code, bankName: bank.short, accountNumber: account, accountName: name, quoteId: quote.id })
       onOpenChange(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
+      // A stale or spent rate: fetch a fresh one so the member can just tap again.
+      setQuoteTick((t) => t + 1)
     }
     setSending(false)
   }
 
+  const ready = Boolean(name && quote?.available && !expired)
   return (
     <Sheet
       open={open}
@@ -165,29 +209,25 @@ export function CashOutSheet({
           </div>
 
           <div className="mt-2 rounded-card bg-white p-5 shadow-soft">
-            <div className="flex justify-between text-[15px]">
-              <span className="text-ink-2">You send</span>
-              <span className="font-semibold tabular-nums">{nim(amountNim, 2)} NIM</span>
-            </div>
-            <div className="mt-2 flex justify-between text-[15px]">
-              <span className="text-ink-2">Rate</span>
-              <span className="font-semibold tabular-nums">{quote ? `1 NIM = ₦${quote.rate.toFixed(2)}` : '…'}</span>
-            </div>
-            <div className="mt-2 flex justify-between text-[15px]">
-              <span className="text-ink-2">Fee</span>
-              <span className="font-semibold tabular-nums">{quote ? naira(quote.feeNgn) : '…'}</span>
-            </div>
+            <Line label="You send">{nim(amountNim, 2)} NIM</Line>
+            <Line label="Changed to">{quote ? `${quote.usdt.toFixed(2)} USDT` : '…'}</Line>
+            <Line label="Rate">{quote ? `1 NIM = ₦${quote.rate.toFixed(3)}` : '…'}</Line>
+            <Line label="Bank fee">{quote ? naira(quote.feeNgn) : '…'}</Line>
             <div className="mt-4 flex items-baseline justify-between border-t border-line pt-4">
               <span className="font-semibold">You get</span>
-              <span className="font-display text-3xl font-extrabold tracking-tight tabular-nums">{quote ? naira(quote.ngnOut) : '…'}</span>
+              <span className="font-display text-3xl font-extrabold tracking-tight tabular-nums">{quote ? naira(quote.ngn) : '…'}</span>
             </div>
+            <p className="mt-2 text-xs text-ink-2" aria-live="polite">
+              {!quote ? 'Getting the best rate…' : expired ? 'Refreshing the rate…' : `Rate held for ${secondsLeft}s`}
+            </p>
           </div>
 
+          {quote && !quote.available && <p className="mt-3 rounded-[var(--radius-inner)] bg-sun-soft px-4 py-3 text-sm text-sun-ink">{quote.unavailable}</p>}
           {error && <p className="mt-3 rounded-[var(--radius-inner)] bg-coral-soft px-4 py-3 text-sm text-coral-ink">{error}</p>}
 
           <div className="mt-5">
-            <PrimaryButton onClick={send} disabled={!name || !quote || sending}>
-              {sending ? 'Sending…' : name && quote ? `Send ${naira(quote.ngnOut)}` : 'Enter account number'}
+            <PrimaryButton onClick={send} disabled={!ready || sending}>
+              {sending ? 'Sending…' : !name ? 'Enter account number' : quote && !quote.available ? 'Cash-out unavailable' : quote ? `Send ${naira(quote.ngn)}` : 'Getting rate…'}
             </PrimaryButton>
           </div>
         </>

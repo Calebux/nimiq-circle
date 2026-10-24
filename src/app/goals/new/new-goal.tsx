@@ -5,12 +5,11 @@ import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { SignedIn } from '@/components/gate'
-import { BackLink, BottomBar, PrimaryButton, Screen, naira, nim, shortDate } from '@/components/ui'
-import { api } from '@/components/wallet'
-import { NGN_PER_NIM } from '@/lib/constants'
+import { BackLink, BottomBar, PrimaryButton, Screen, nim, shortDate } from '@/components/ui'
+import { Ngn, api } from '@/components/wallet'
 
 const IDEAS = ['Rent', 'Detty December', 'School fees', 'Emergency fund', 'New phone', 'Japa']
-const TARGETS = [5000, 10000, 25000, 50000]
+const TARGETS = [50000, 100000, 250000, 500000]
 const DAY = 86_400_000
 
 /** <input type="date"> speaks local calendar days; toISOString() would shift them to UTC. */
@@ -89,7 +88,7 @@ function Form() {
         <p className="text-sm font-semibold text-ink-2">Saving for</p>
         <p className="max-w-[68%] truncate font-display text-2xl font-extrabold tracking-tight">{name.trim() || 'Your goal'}</p>
         <p className="mt-3 font-display text-[36px] font-extrabold leading-none tracking-tight tabular-nums">{targetNim ? `${nim(targetNim)} NIM` : 'Any amount'}</p>
-        {targetNim > 0 && <p className="mt-1 text-[15px] text-ink-2">≈ {naira(targetNim * NGN_PER_NIM)}</p>}
+        {targetNim > 0 && <p className="mt-1 text-[15px] text-ink-2">≈ <Ngn nim={targetNim} /></p>}
         <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/80 px-3 py-1.5 text-sm font-semibold">
           {locked ? <LockSimple size={15} weight="bold" /> : <LockSimpleOpen size={15} weight="bold" />}
           {locked ? `Locked until ${shortDate(unlockAt)} (${days} days)` : 'Take it out any time'}

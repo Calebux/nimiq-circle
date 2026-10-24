@@ -6,10 +6,9 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { SignedIn, Splash } from '@/components/gate'
-import { Avatar, AvatarStack, BackLink, BottomBar, Chip, PrimaryButton, Screen, Sheet, naira, nim, shortDate, useCountUp, useReducedMotion } from '@/components/ui'
-import { useApi, usePayment } from '@/components/wallet'
+import { Avatar, AvatarStack, BackLink, BottomBar, Chip, PrimaryButton, Screen, Sheet, nim, shortDate, useCountUp, useReducedMotion } from '@/components/ui'
+import { Ngn, useApi, usePayment } from '@/components/wallet'
 import type { CircleView } from '@/lib/circles'
-import { NGN_PER_NIM } from '@/lib/constants'
 import { EditCircleSheet, RemoveSheet, StartNowSheet } from './manage'
 
 type Member = CircleView['members'][number]
@@ -31,7 +30,7 @@ function PotCard({ circle }: { circle: CircleView }) {
         <p className="text-sm font-semibold text-coral-ink">In the pot this round</p>
         <p className="mt-1 font-display text-[52px] font-extrabold leading-none tracking-tight tabular-nums">{nim(inPot)}</p>
         <p className="mt-1.5 text-[15px] text-ink-2">
-          of {nim(total)} NIM ≈ {naira(total * NGN_PER_NIM)}
+          of {nim(total)} NIM ≈ <Ngn nim={total} />
         </p>
 
         <div className="mt-4 flex gap-1.5" aria-label={`${paid} of ${circle.size} paid`}>
@@ -228,7 +227,7 @@ function ChipInSheet({ circle, open, onOpenChange, onPaid }: { circle: CircleVie
     >
       <div className="rounded-card bg-white p-5 text-center shadow-soft">
         <p className="font-display text-[44px] font-extrabold leading-none tracking-tight tabular-nums">{nim(circle.contribution)}</p>
-        <p className="mt-1 text-ink-2">NIM ≈ {naira(circle.contribution * NGN_PER_NIM)}</p>
+        <p className="mt-1 text-ink-2">NIM ≈ <Ngn nim={circle.contribution} /></p>
       </div>
 
       <div className="mt-3 divide-y divide-line rounded-card bg-white px-5 py-1 shadow-soft">

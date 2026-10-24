@@ -6,12 +6,11 @@ import { useState } from 'react'
 import { CashOutSheet, Sent, type BankChoice } from '@/components/cashout'
 import { Confetti } from '@/components/confetti'
 import { SignedIn, Splash } from '@/components/gate'
-import { BackLink, BottomBar, PrimaryButton, Screen, SecondaryButton, Sheet, naira, nim, shortDate, useCountUp } from '@/components/ui'
-import { api, useApi, usePayment } from '@/components/wallet'
+import { BackLink, BottomBar, PrimaryButton, Screen, SecondaryButton, Sheet, nim, shortDate, useCountUp } from '@/components/ui'
+import { Ngn, api, useApi, usePayment } from '@/components/wallet'
 import type { GoalView, PublicWithdrawal } from '@/lib/goals'
-import { NGN_PER_NIM } from '@/lib/constants'
 
-const AMOUNTS = [500, 1000, 2500, 5000]
+const AMOUNTS = [5000, 10000, 25000, 50000]
 
 function JarCard({ goal }: { goal: GoalView }) {
   const balance = useCountUp(goal.balance)
@@ -24,7 +23,7 @@ function JarCard({ goal }: { goal: GoalView }) {
         <p className="text-sm font-semibold text-ink-2">Saved so far</p>
         <p className="mt-1 font-display text-[52px] font-extrabold leading-none tracking-tight tabular-nums">{nim(balance)}</p>
         <p className="mt-1.5 text-[15px] text-ink-2">
-          {goal.target ? `of ${nim(goal.target)} NIM` : 'NIM'} ≈ {naira(goal.balance * NGN_PER_NIM)}
+          {goal.target ? `of ${nim(goal.target)} NIM` : 'NIM'} ≈ <Ngn nim={goal.balance} />
         </p>
         {goal.target && (
           <div className="mt-4 h-3 overflow-hidden rounded-full bg-white" aria-label={`${Math.round(progress * 100)}% of target`}>
@@ -41,7 +40,7 @@ function JarCard({ goal }: { goal: GoalView }) {
 }
 
 function AddMoneySheet({ goal, open, onOpenChange, onDone }: { goal: GoalView; open: boolean; onOpenChange: (o: boolean) => void; onDone: () => void }) {
-  const [amount, setAmount] = useState('1000')
+  const [amount, setAmount] = useState('10000')
   const payment = usePayment()
   const value = Number(amount) || 0
 
@@ -81,7 +80,7 @@ function AddMoneySheet({ goal, open, onOpenChange, onDone }: { goal: GoalView; o
           </button>
         ))}
       </div>
-      <p className="mt-3 text-sm text-ink-2">≈ {naira(value * NGN_PER_NIM)}. Network fee: free.</p>
+      <p className="mt-3 text-sm text-ink-2">≈ <Ngn nim={value} />. Network fee: free.</p>
       {payment.error && <p className="mt-3 rounded-[var(--radius-inner)] bg-coral-soft px-4 py-3 text-sm text-coral-ink">{payment.error}</p>}
       <div className="mt-5">
         <PrimaryButton onClick={approve} disabled={value < 1 || payment.state !== 'idle'}>

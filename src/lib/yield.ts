@@ -2,6 +2,7 @@ import 'server-only'
 import { one } from './db'
 import { serverConfig } from './env'
 import { getBalance, getStaker } from './nimiq/rpc'
+import { floatStatus } from './treasury'
 
 const CACHE_MS = 60_000
 let cached: { at: number; surplus: number; liabilities: number } | null = null
@@ -23,16 +24,18 @@ async function liabilities(): Promise<number> {
 
 /**
  * Staking rewards not yet paid out: what the pool really holds (liquid + every staker bucket)
- * minus what it owes and the operator float. Read from chain, cached for a minute.
+ * minus what it owes, the operator float, and NIM the treasury bought. Read from chain, cached for a minute.
  */
 async function poolSurplus() {
   if (cached && Date.now() - cached.at < CACHE_MS) return cached
   const pool = serverConfig().nim.poolAddress
   const owed = await liabilities()
   if (!pool) return { at: Date.now(), surplus: 0, liabilities: owed }
-  const [liquid, staker] = await Promise.all([getBalance(pool), getStaker(pool)])
+  const [liquid, staker, treasury] = await Promise.all([getBalance(pool), getStaker(pool), floatStatus()])
   const assets = liquid + (staker ? staker.balance + staker.inactiveBalance + staker.retiredBalance : 0)
-  cached = { at: Date.now(), surplus: Math.max(0, assets - owed - floatLuna()), liabilities: owed }
+  // NIM the treasury bought from cash-outs still sits in the pool but is ours, not members'.
+  const operator = floatLuna() + treasury.nimLunaReal
+  cached = { at: Date.now(), surplus: Math.max(0, assets - owed - operator), liabilities: owed }
   return cached
 }
 

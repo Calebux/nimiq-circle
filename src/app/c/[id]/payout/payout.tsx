@@ -6,10 +6,9 @@ import { useState } from 'react'
 import { CashOutSheet, Sent, type BankChoice } from '@/components/cashout'
 import { Confetti } from '@/components/confetti'
 import { SignedIn, Splash } from '@/components/gate'
-import { BackLink, BottomBar, PrimaryButton, Screen, SecondaryButton, naira, nim, useCountUp } from '@/components/ui'
-import { api, useApi } from '@/components/wallet'
+import { BackLink, BottomBar, PrimaryButton, Screen, SecondaryButton, nim, useCountUp } from '@/components/ui'
+import { Ngn, api, useApi } from '@/components/wallet'
 import type { CircleView, PublicPayout } from '@/lib/circles'
-import { NGN_PER_NIM } from '@/lib/constants'
 
 function Celebrate({ circle, payout, onClaimed }: { circle: CircleView; payout: PublicPayout; onClaimed: (p: PublicPayout) => void }) {
   const total = payout.pot + payout.bonus
@@ -54,7 +53,7 @@ function Celebrate({ circle, payout, onClaimed }: { circle: CircleView; payout: 
       <section className="mt-6 rounded-card bg-white/70 p-1.5 shadow-soft ring-1 ring-white">
         <div className="rounded-[calc(var(--radius-card)-6px)] bg-sun-soft p-5 text-center">
           <p className="font-display text-[52px] font-extrabold leading-none tracking-tight tabular-nums">{nim(shown, 2)}</p>
-          <p className="mt-1.5 text-[15px] text-sun-ink">NIM ≈ {naira(total * NGN_PER_NIM)}</p>
+          <p className="mt-1.5 text-[15px] text-sun-ink">NIM ≈ <Ngn nim={total} /></p>
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold">Pot {nim(payout.pot)}</span>
             {payout.bonus > 0 && (
