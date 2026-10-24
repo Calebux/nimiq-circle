@@ -9,7 +9,9 @@ export async function POST(request: Request, ctx: RouteContext<'/api/circles/[id
     const { id } = await ctx.params
     const b = await readJsonBody(request)
     const hint = typeof b.hint === 'string' && b.hint.length <= 4096 ? b.hint : null
-    return Response.json(await recordContribution(user, id, hint))
+    // `round` set: paying a round you missed.
+    const round = Number.isInteger(b.round) ? (b.round as number) : undefined
+    return Response.json(await recordContribution(user, id, hint, round))
   } catch (err) {
     return errorResponse(err)
   }

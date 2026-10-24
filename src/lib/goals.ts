@@ -187,3 +187,9 @@ export async function myGoals(user: User) {
   )
 }
 export type GoalSummary = Awaited<ReturnType<typeof myGoals>>[number]
+
+/** Worker: credit unreported goal deposits and mark bank withdrawals that have landed. */
+export async function syncGoals() {
+  for (const goal of await all<GoalRow>("SELECT * FROM goals WHERE status = 'open'")) await reconcileGoal(goal)
+  for (const w of await all<WithdrawalRow>("SELECT * FROM withdrawals WHERE status = 'cashing'")) await settle(w)
+}

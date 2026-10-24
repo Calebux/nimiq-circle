@@ -2,7 +2,7 @@
 
 import type { NimiqProvider } from '@nimiq/mini-app-sdk'
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
-import { NGN_PER_NIM } from '@/lib/constants'
+import { CADENCES, NGN_PER_NIM } from '@/lib/constants'
 import { connectNimiq, describeWalletError } from '@/lib/nimiq/client'
 import { naira } from './ui'
 
@@ -19,6 +19,8 @@ interface Config {
   devWallet: boolean
   /** Live NIM → NGN for "≈ ₦" lines; cash-outs always use a locked quote. */
   ngnPerNim: number | null
+  /** Round lengths the server accepts (adds a 10-minute one in demo mode). */
+  cadences: string[]
 }
 
 type Phase = 'loading' | 'signed-out' | 'signing-in' | 'ready'
@@ -30,10 +32,12 @@ interface Wallet {
   devWallet: boolean
   /** Live NIM → NGN, for estimates. */
   ngnPerNim: number
+  cadences: string[]
   error: string | null
   /** Resolves true once signed in; false if cancelled or failed (the error is in `error`). */
   signIn: () => Promise<boolean>
   setMe: (me: Me) => void
+  signOut: () => Promise<void>
   /** Ask Nimiq Pay to send NIM to the pool with `memo`. Resolves with the wallet's return value. */
   pay: (input: { nim: number; memo: string }) => Promise<string>
 }
@@ -118,6 +122,12 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     }
   }, [nimiq, config])
 
+  const signOut = useCallback(async () => {
+    await api('/api/auth/logout', { method: 'POST' })
+    setMe(null)
+    setPhase('signed-out')
+  }, [])
+
   const pay = useCallback(
     async ({ nim, memo }: { nim: number; memo: string }) => {
       if (!nimiq) {
@@ -137,7 +147,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <WalletContext.Provider
-      value={{ phase, me, inNimiqPay: Boolean(nimiq), devWallet: Boolean(config?.devWallet), ngnPerNim: config?.ngnPerNim ?? NGN_PER_NIM, error, signIn, setMe, pay }}
+      value={{ phase, me, inNimiqPay: Boolean(nimiq), devWallet: Boolean(config?.devWallet), ngnPerNim: config?.ngnPerNim ?? NGN_PER_NIM, cadences: config?.cadences ?? [...CADENCES], error, signIn, signOut, setMe, pay }}
     >
       {children}
     </WalletContext.Provider>

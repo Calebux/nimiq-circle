@@ -2,6 +2,7 @@
 
 import { ArrowDown, ArrowUp, LockSimple, LockSimpleOpen, Sparkle, Wallet } from '@phosphor-icons/react/dist/ssr'
 import Image from 'next/image'
+import Link from 'next/link'
 import { useState } from 'react'
 import { CashOutSheet, Sent, type BankChoice } from '@/components/cashout'
 import { Confetti } from '@/components/confetti'
@@ -174,6 +175,9 @@ function Goal({ goal, reload }: { goal: GoalView; reload: () => void }) {
               <Sparkle size={16} weight="fill" className="text-mint" />
             </p>
             <p className="mt-0.5 text-sm leading-snug text-mint-ink">Staked while it waits. You get it with your savings.</p>
+            <Link href="/pool" className="mt-1 inline-block text-sm font-bold text-mint-ink underline decoration-2 underline-offset-4">
+              See the pool on chain
+            </Link>
           </div>
         </section>
 

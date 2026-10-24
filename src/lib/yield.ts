@@ -10,13 +10,16 @@ let cached: { at: number; surplus: number; liabilities: number } | null = null
 /** Operator-owned NIM in the pool (test funding, fee float). Never paid out as yield. */
 const floatLuna = () => Math.round(Number(process.env.POOL_FLOAT_NIM ?? 0) * 100_000)
 
-/** NIM owed to members: real deposits minus real money already sent back out. Simulated rows are excluded. */
+/**
+ * NIM owed to members: real deposits minus real money already sent back out. "Real" means it
+ * involved a real wallet: test-wallet users are excluded by their user row, not by tx hashes.
+ */
 async function liabilities(): Promise<number> {
   const row = await one<{ owed: number }>(
     `SELECT
-       (SELECT COALESCE(SUM(amount), 0) FROM deposits WHERE tx_hash NOT LIKE 'mock-%')
-     - (SELECT COALESCE(SUM(pot + bonus), 0) FROM payouts WHERE status IN ('sent', 'cashing', 'cashed') AND COALESCE(tx_hash, '') NOT LIKE 'mock-%')
-     - (SELECT COALESCE(SUM(amount + bonus), 0) FROM withdrawals WHERE status IN ('sent', 'cashing', 'cashed') AND COALESCE(tx_hash, '') NOT LIKE 'mock-%')
+       (SELECT COALESCE(SUM(d.amount), 0) FROM deposits d JOIN users u ON u.address = d.address WHERE u.dev = 0 AND d.tx_hash NOT LIKE 'mock-%')
+     - (SELECT COALESCE(SUM(p.pot + p.bonus), 0) FROM payouts p JOIN users u ON u.address = p.address WHERE u.dev = 0 AND p.status IN ('sent', 'cashing', 'cashed'))
+     - (SELECT COALESCE(SUM(w.amount + w.bonus), 0) FROM withdrawals w JOIN users u ON u.address = w.address WHERE u.dev = 0 AND w.status IN ('sent', 'cashing', 'cashed'))
      AS owed`,
   )
   return row?.owed ?? 0
@@ -49,4 +52,24 @@ export async function yieldShare(balanceLuna: number, simulated: boolean): Promi
 
 export function invalidateYield() {
   cached = null
+}
+
+/** Public proof of reserves: what the pool holds on chain against what it owes. Luna. */
+export async function reserves() {
+  const pool = serverConfig().nim.poolAddress
+  if (!pool) throw new Error('POOL_ADDRESS is not configured')
+  const [liquid, staker, owed, treasury] = await Promise.all([getBalance(pool), getStaker(pool), liabilities(), floatStatus()])
+  const staked = staker ? staker.balance + staker.inactiveBalance + staker.retiredBalance : 0
+  const operator = floatLuna() + treasury.nimLunaReal
+  return {
+    address: pool,
+    validator: staker?.delegation ?? serverConfig().nim.validator,
+    liquid,
+    stakedActive: staker?.balance ?? 0,
+    unstaking: (staker?.inactiveBalance ?? 0) + (staker?.retiredBalance ?? 0),
+    total: liquid + staked,
+    owedToMembers: owed,
+    operator,
+    earned: Math.max(0, liquid + staked - owed - operator),
+  }
 }

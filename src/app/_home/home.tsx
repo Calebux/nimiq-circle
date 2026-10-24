@@ -1,6 +1,6 @@
 'use client'
 
-import { Gift, LockSimple, Plus, Ticket, UsersThree } from '@phosphor-icons/react/dist/ssr'
+import { BellRinging, CalendarDots, Gift, Hourglass, LockSimple, Plus, Ticket, UsersThree, X } from '@phosphor-icons/react/dist/ssr'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -40,19 +40,19 @@ function NamePrompt() {
       <div className="flex items-center gap-3">
         <Avatar avatar={me.avatar} size={52} />
         <div>
-          <h2 className="font-display text-xl font-bold tracking-tight">What should your circles call you?</h2>
-          <p className="text-sm text-ink-2">Shown to people in your circles.</p>
+          <h2 className="font-display text-xl font-bold tracking-tight">First, what&apos;s your name?</h2>
+          <p className="text-sm text-ink-2">How people in your circles will see you. You can change it later.</p>
         </div>
       </div>
       <div className="flex gap-2">
         <label htmlFor="your-name" className="sr-only">
-          Your name
+          Your first name
         </label>
         <input
           id="your-name"
           value={name}
           onChange={(e) => setName(e.target.value.slice(0, 24))}
-          placeholder="Tolu"
+          placeholder="Your first name"
           autoComplete="given-name"
           enterKeyHint="done"
           className="h-12 min-w-0 flex-1 rounded-full bg-blush px-4 font-semibold outline-none placeholder:font-normal placeholder:text-ink-2/70 focus:ring-2 focus:ring-coral"
@@ -61,6 +61,109 @@ function NamePrompt() {
           Save
         </button>
       </div>
+    </section>
+  )
+}
+
+/** Name, picture, sign out. Opened from your avatar on Home. */
+function ProfileSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const { me, setMe, signOut } = useWallet()
+  const [name, setName] = useState(me?.name ?? '')
+  const [avatar, setAvatar] = useState(me?.avatar ?? 1)
+  const [saving, setSaving] = useState(false)
+  if (!me) return null
+  async function save() {
+    setSaving(true)
+    try {
+      const { user } = await api<{ user: NonNullable<typeof me> }>('/api/me', { method: 'PATCH', body: { name, avatar } })
+      setMe(user)
+      onOpenChange(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+  const short = me.address.replace(/\s/g, '')
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange} title="You" description={`${short.slice(0, 4)} … ${short.slice(-4)} on Nimiq`}>
+      <label htmlFor="profile-name" className="font-display text-base font-bold tracking-tight">
+        Name
+      </label>
+      <input
+        id="profile-name"
+        value={name}
+        onChange={(e) => setName(e.target.value.slice(0, 24))}
+        className="mt-2 h-12 w-full rounded-[var(--radius-inner)] bg-white px-4 font-semibold shadow-soft outline-none focus:ring-2 focus:ring-coral"
+      />
+      <p className="mt-5 font-display text-base font-bold tracking-tight">Picture</p>
+      <div className="mt-2 grid grid-cols-6 gap-2">
+        {[1, 2, 3, 4, 5, 6].map((a) => (
+          <button key={a} onClick={() => setAvatar(a)} aria-label={`Picture ${a}`} aria-pressed={avatar === a} className="press grid place-items-center">
+            <Avatar avatar={a} size={48} className={avatar === a ? 'ring-[3px] ring-coral' : ''} />
+          </button>
+        ))}
+      </div>
+      <div className="mt-6 flex flex-col gap-2">
+        <PrimaryButton onClick={save} disabled={!name.trim() || saving}>
+          {saving ? 'Saving…' : 'Save'}
+        </PrimaryButton>
+        <button onClick={signOut} className="py-3 text-sm font-semibold text-coral-ink">
+          Sign out
+        </button>
+      </div>
+    </Sheet>
+  )
+}
+
+const NOTICE_ICON = {
+  due_soon: CalendarDots,
+  late: Hourglass,
+  nudge: BellRinging,
+  pot_ready: Gift,
+  short_pot: Gift,
+  late_money: Gift,
+  missed: Hourglass,
+} as const
+
+interface Notice {
+  id: string
+  kind: keyof typeof NOTICE_ICON
+  text: string
+  href: string
+}
+
+/** Reminders, nudges, pots ready: the in-app stand-in for push notifications. */
+function Inbox() {
+  const { data, setData } = useApi<{ notices: Notice[] }>('/api/notices', 30_000)
+  const notices = data?.notices ?? []
+  if (notices.length === 0) return null
+  function dismiss(ids: string[] | 'all') {
+    setData({ notices: ids === 'all' ? [] : notices.filter((n) => !ids.includes(n.id)) })
+    api('/api/notices', { body: ids === 'all' ? { all: true } : { ids } }).catch(() => undefined)
+  }
+  return (
+    <section className="flex flex-col gap-2">
+      {notices.slice(0, 3).map((n) => {
+        const Icon = NOTICE_ICON[n.kind] ?? BellRinging
+        const warm = n.kind === 'pot_ready' || n.kind === 'short_pot' || n.kind === 'late_money'
+        return (
+          <div key={n.id} className={`pop-in flex items-start gap-3 rounded-card p-4 shadow-soft ${warm ? 'bg-sun' : 'bg-white'}`}>
+            <span className={`grid size-9 shrink-0 place-items-center rounded-full ${warm ? 'bg-white/70 text-coral' : 'bg-coral-soft text-coral-ink'}`}>
+              <Icon size={18} weight="fill" />
+            </span>
+            <Link href={n.href} onClick={() => dismiss([n.id])} className="flex-1 text-[15px] leading-snug">
+              {n.text}
+            </Link>
+            <button onClick={() => dismiss([n.id])} aria-label="Dismiss" className="press -m-1 grid size-8 place-items-center rounded-full text-ink-2">
+              <X size={16} weight="bold" />
+            </button>
+          </div>
+        )
+      })}
+      {notices.length > 3 && (
+        <button onClick={() => dismiss('all')} className="self-end text-sm font-semibold text-ink-2">
+          Clear all {notices.length}
+        </button>
+      )}
     </section>
   )
 }
@@ -89,8 +192,12 @@ function CircleCard({ c }: { c: CircleSummary }) {
           <span className="text-ink-2">{filling ? `${nim(c.contribution)} NIM a round` : done ? 'Finished' : `Round ${c.round} of ${c.size}`}</span>
           {c.payoutReady ? (
             <Chip tone="sun">
-              <Gift size={13} weight="fill" /> Your pot is ready
+              <Gift size={13} weight="fill" /> Money is waiting
             </Chip>
+          ) : c.owes > 0 ? (
+            <Chip tone="coral">You owe {c.owes === 1 ? 'a round' : `${c.owes} rounds`}</Chip>
+          ) : c.late ? (
+            <Chip tone="coral">Late: chip in now</Chip>
           ) : filling ? (
             <Chip tone="lilac">
               {c.joined} of {c.size} joined
@@ -192,6 +299,7 @@ function StartCards({ first }: { first: boolean }) {
 
 function HomeContent() {
   const { me } = useWallet()
+  const [profile, setProfile] = useState(false)
   const { data, error } = useApi<HomeData>('/api/home')
   if (error && !data) return <Screen bar={false}><p className="mt-10 rounded-card bg-white p-6 text-center text-ink-2 shadow-soft">{error}</p></Screen>
   if (!data) return <Splash />
@@ -206,13 +314,16 @@ function HomeContent() {
           </p>
           <h1 className="font-display text-[32px] font-extrabold leading-none tracking-tight">{empty ? 'Welcome' : 'Your savings'}</h1>
         </div>
-        <Link href="/new" aria-label="New circle" className="press grid size-12 place-items-center rounded-full bg-coral text-white shadow-lift">
-          <Plus size={22} weight="bold" />
-        </Link>
+        {me && (
+          <button onClick={() => setProfile(true)} aria-label="Your profile" className="press rounded-full shadow-soft">
+            <Avatar avatar={me.avatar} size={48} className="ring-2 ring-white" />
+          </button>
+        )}
       </header>
 
       <div className="mt-6 flex flex-col gap-4">
         <NamePrompt />
+        <Inbox />
         {data.circles.length > 0 && (
           <>
             <h2 className="mt-1 flex items-center gap-2 font-display text-lg font-bold tracking-tight text-ink-2">
@@ -235,6 +346,7 @@ function HomeContent() {
         )}
         <StartCards first={empty} />
       </div>
+      <ProfileSheet key={`${me?.name}-${me?.avatar}-${profile}`} open={profile} onOpenChange={setProfile} />
     </Screen>
   )
 }

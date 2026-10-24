@@ -1,3 +1,4 @@
+import { cadences } from '@/lib/circles'
 import { serverConfig } from '@/lib/env'
 import { offrampProvider } from '@/lib/offramp'
 import { nimUsd } from '@/lib/pricing'
@@ -12,5 +13,5 @@ export async function GET() {
   } catch {
     // Estimates fall back to the client constant; cash-out still gets a real quote.
   }
-  return Response.json({ poolAddress: nim.poolAddress, network: nim.network, devWallet, ngnPerNim })
+  return Response.json({ poolAddress: nim.poolAddress, network: nim.network, devWallet, ngnPerNim, cadences: cadences() })
 }

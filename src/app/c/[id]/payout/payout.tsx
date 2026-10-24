@@ -46,8 +46,14 @@ function Celebrate({ circle, payout, onClaimed }: { circle: CircleView; payout: 
         <div className="pop-in">
           <Image src="/art/payout.webp" alt="" width={714} height={800} priority className="mx-auto w-[220px]" />
         </div>
-        <h1 className="mt-4 font-display text-[36px] font-extrabold leading-tight tracking-tight">It&apos;s your turn!</h1>
-        <p className="mt-1 text-ink-2">Everyone chipped in. The whole pot is yours.</p>
+        <h1 className="mt-4 font-display text-[36px] font-extrabold leading-tight tracking-tight">{payout.kind === 'late' ? 'Late money is here' : 'It’s your turn!'}</h1>
+        <p className="mt-1 text-ink-2">
+          {payout.kind === 'late'
+            ? `${payout.fromName} paid what they owed for round ${payout.round}.`
+            : payout.pot < circle.contribution * circle.size
+              ? 'Not everyone paid in time. Here is what came in; the rest comes to you when they pay.'
+              : 'Everyone chipped in. The whole pot is yours.'}
+        </p>
       </div>
 
       <section className="mt-6 rounded-card bg-white/70 p-1.5 shadow-soft ring-1 ring-white">

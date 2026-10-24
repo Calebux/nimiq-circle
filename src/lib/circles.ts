@@ -6,10 +6,28 @@ import { circleMemo, isSimulated, reconcile, verifyDeposit, type DepositResult }
 import { serverConfig } from './env'
 import { ApiError } from './errors'
 import { formatAddress, sameAddress } from './nimiq/address'
+import { notify } from './notices'
 import { yieldShare } from './yield'
 
-export const CADENCE_DAYS: Record<string, number> = { Weekly: 7, 'Every 2 weeks': 14, Monthly: 30 }
-const DAY = 86_400_000
+const MINUTE = 60_000
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
+
+/** Round length per cadence. "Every 10 min" exists only with DEMO_CADENCE=1, for demo videos. */
+const CADENCE_MS: Record<string, number> = { Weekly: 7 * DAY, 'Every 2 weeks': 14 * DAY, Monthly: 30 * DAY, 'Every 10 min': 10 * MINUTE }
+
+export function cadences(): string[] {
+  const list = ['Weekly', 'Every 2 weeks', 'Monthly']
+  return process.env.DEMO_CADENCE === '1' ? [...list, 'Every 10 min'] : list
+}
+
+const periodOf = (cadence: string) => CADENCE_MS[cadence] ?? 7 * DAY
+
+/** After the due date, late payers get this long before the pot goes out with what is in. */
+const graceOf = (cadence: string) => Math.min(DAY, Math.round(periodOf(cadence) * 0.3))
+
+/** Reminders go out this long before a round is due. */
+const remindBefore = (cadence: string) => Math.min(DAY, Math.round(periodOf(cadence) * 0.3))
 
 interface CircleRow {
   id: string
@@ -49,10 +67,20 @@ interface PayoutRow {
   provider_id: string | null
   created_at: number
   settled_at: number | null
+  kind: 'pot' | 'late'
+  /** 'late' only: who paid the missed contribution. */
+  from_address: string | null
 }
 
-const dueAt = (c: Pick<CircleRow, 'started_at' | 'cadence'>, round: number) =>
-  c.started_at ? c.started_at + round * (CADENCE_DAYS[c.cadence] ?? 7) * DAY : null
+interface MissRow {
+  circle_id: string
+  round: number
+  address: string
+  amount: number
+  settled_tx: string | null
+}
+
+const dueAt = (c: Pick<CircleRow, 'started_at' | 'cadence'>, round: number) => (c.started_at ? c.started_at + round * periodOf(c.cadence) : null)
 
 function inviteCode(name: string) {
   const word = name.replace(/[^a-z]/gi, '').toUpperCase().slice(0, 6) || 'CIRCLE'
@@ -84,7 +112,7 @@ export const MAX_SIZE = 12
 function validateSettings(input: CircleSettings) {
   const name = input.name.trim().slice(0, 32)
   if (!name) throw new ApiError('Give your circle a name')
-  if (!CADENCE_DAYS[input.cadence]) throw new ApiError('Pick how often')
+  if (!cadences().includes(input.cadence)) throw new ApiError('Pick how often')
   if (!Number.isInteger(input.contributionNim) || input.contributionNim < 1 || input.contributionNim > 1_000_000) throw new ApiError('Pick an amount between 1 and 1,000,000 NIM')
   if (!Number.isInteger(input.size) || input.size < MIN_SIZE || input.size > MAX_SIZE) throw new ApiError(`Circles have ${MIN_SIZE} to ${MAX_SIZE} people`)
   return { ...input, name, localName: input.localName.slice(0, 16) }
@@ -195,9 +223,11 @@ async function startCircle(circle: CircleRow) {
 // --- Rounds ------------------------------------------------------------------
 
 async function paidThisRound(circleId: string, round: number) {
-  const rows = await all<{ address: string }>("SELECT address FROM deposits WHERE kind = 'circle' AND ref_id = ? AND round = ?", [circleId, round])
+  const rows = await all<{ address: string }>("SELECT DISTINCT address FROM deposits WHERE kind = 'circle' AND ref_id = ? AND round = ?", [circleId, round])
   return rows.map((r) => r.address)
 }
+
+const unsettledMisses = (circleId: string) => all<MissRow>('SELECT * FROM misses WHERE circle_id = ? AND settled_tx IS NULL', [circleId])
 
 /** Money this circle holds in the pool right now (deposits minus pots that left). */
 async function heldBalance(circleId: string) {
@@ -211,62 +241,194 @@ async function heldBalance(circleId: string) {
   return { held: row?.held ?? 0, simulated: (row?.simulated ?? 0) > 0 }
 }
 
+async function names(addresses: string[]) {
+  const users = await usersByAddress(addresses)
+  return (address: string) => displayName(users.get(address))
+}
+
 /**
- * Close every round that is fully paid and due: the pot (plus the yield it earned while it
- * waited) becomes claimable by that round's member. Safe to call on every read.
+ * Credit pool payments the app never reported: the current round from members who have not
+ * paid it, and missed rounds from the member who missed them. Anything else (a second payment)
+ * is left unrecorded: it needs a refund, not a credit.
+ */
+async function reconcileCircle(circle: CircleRow, members: MemberRow[]) {
+  const paidNow = circle.status === 'active' ? await paidThisRound(circle.id, circle.round) : []
+  const misses = await unsettledMisses(circle.id)
+  const credited = new Set(paidNow.map((a) => `${circle.round}:${formatAddress(a)}`))
+  await reconcile('circle', circle.id, (memo, payer, tx) => {
+    const member = members.find((m) => sameAddress(m.address, payer))
+    const round = Number(memo.split(':')[2])
+    if (!member || tx.value < circle.contribution || !Number.isInteger(round)) return null
+    const current = circle.status === 'active' && round === circle.round
+    const late = misses.some((m) => m.round === round && sameAddress(m.address, member.address))
+    const key = `${round}:${member.address}`
+    if ((!current && !late) || credited.has(key)) return null
+    credited.add(key)
+    return { round, address: member.address }
+  }).catch((err) => console.error('reconcile circle', circle.id, err))
+}
+
+/** A missed contribution that has now been paid goes to the member who got that round's short pot. */
+async function settleLate(circle: CircleRow, members: MemberRow[]) {
+  const misses = await unsettledMisses(circle.id)
+  if (misses.length === 0) return
+  const nameOf = await names(members.map((m) => m.address))
+  for (const miss of misses) {
+    const deposit = await one<{ tx_hash: string }>("SELECT tx_hash FROM deposits WHERE kind = 'circle' AND ref_id = ? AND round = ? AND address = ?", [circle.id, miss.round, miss.address])
+    if (!deposit) continue
+    const settled = await run('UPDATE misses SET settled_tx = ? WHERE circle_id = ? AND round = ? AND address = ? AND settled_tx IS NULL', [deposit.tx_hash, circle.id, miss.round, miss.address])
+    if (settled.rowsAffected === 0) continue
+    const recipient = members.find((m) => m.turn === miss.round)
+    if (!recipient) continue
+    const id = newId()
+    await run(
+      `INSERT INTO payouts (id, circle_id, round, address, pot, bonus, status, created_at, kind, from_address)
+       VALUES (?, ?, ?, ?, ?, 0, 'claimable', ?, 'late', ?)`,
+      [id, circle.id, miss.round, recipient.address, miss.amount, Date.now(), miss.address],
+    )
+    await notify(recipient.address, `late_money:${id}`, 'late_money', `${nameOf(miss.address)} paid what they owed for round ${miss.round} of ${circle.name}. ${nim(miss.amount)} NIM is yours.`, `/c/${circle.id}/payout`)
+  }
+}
+
+const nim = (luna: number) => (luna / LUNA).toLocaleString('en-US', { maximumFractionDigits: 2 })
+
+/** "Sat 24 Oct", or "Sat 14:05" for demo rounds that last minutes. Lagos time, like the app. */
+function dayLabel(ms: number, cadence: string) {
+  const short = periodOf(cadence) < DAY
+  return new Date(ms).toLocaleString('en-GB', short ? { weekday: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Lagos' } : { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Africa/Lagos' })
+}
+
+/**
+ * Close every round that is due. Fully paid: the pot (plus the yield it earned while it waited)
+ * goes to that round's member. Not fully paid: unpaid members get a grace period, then the pot
+ * goes out with what is in and the gap is recorded as a miss they can settle later.
+ * Safe to call on every read; the worker calls it every minute.
  */
 export async function advance(circleId: string) {
   for (;;) {
     const circle = await getCircle(circleId)
-    if (circle.status !== 'active') return
+    if (circle.status === 'filling') return
     const members = await membersOf(circleId)
-    const before = await paidThisRound(circleId, circle.round)
-    // Credit current-round payments the app never reported. A second payment from someone
-    // who already paid is left unrecorded (it needs a refund, not a credit).
-    const credited = [...before]
-    await reconcile('circle', circleId, (memo, payer, tx) => {
-      const member = members.find((m) => sameAddress(m.address, payer))
-      const ok = member && memo === circleMemo(circleId, circle.round) && tx.value >= circle.contribution && !credited.some((a) => sameAddress(a, payer))
-      if (!ok) return null
-      credited.push(member.address)
-      return { round: circle.round, address: member.address }
-    }).catch((err) => console.error('reconcile circle', circleId, err))
+    await reconcileCircle(circle, members)
+    await settleLate(circle, members)
+    if (circle.status !== 'active') return
+
     const paid = await paidThisRound(circleId, circle.round)
-    if (!members.every((m) => paid.some((a) => sameAddress(a, m.address)))) return
+    const unpaid = members.filter((m) => !paid.some((a) => sameAddress(a, m.address)))
     const due = dueAt(circle, circle.round)
-    if (!serverConfig().instantPayouts && due && Date.now() < due) return
+    const now = Date.now()
+    if (unpaid.length === 0) {
+      if (!serverConfig().instantPayouts && due && now < due) return
+    } else if (!due || now < due + graceOf(circle.cadence)) {
+      return
+    }
 
     const recipient = members.find((m) => m.turn === circle.round)!
-    const { held, simulated } = await heldBalance(circleId)
-    const bonus = await yieldShare(held, simulated)
-    await run(
-      `INSERT OR IGNORE INTO payouts (id, circle_id, round, address, pot, bonus, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'claimable', ?)`,
-      [newId(), circleId, circle.round, recipient.address, circle.contribution * circle.size, bonus, Date.now()],
-    )
+    const nameOf = await names(members.map((m) => m.address))
+    for (const m of unpaid) {
+      await run('INSERT OR IGNORE INTO misses (circle_id, round, address, amount, created_at) VALUES (?, ?, ?, ?, ?)', [circleId, circle.round, m.address, circle.contribution, now])
+      await notify(
+        m.address,
+        `missed:${circleId}:${circle.round}`,
+        'missed',
+        `Round ${circle.round} of ${circle.name} closed without your ${nim(circle.contribution)} NIM. Pay it any time and it goes straight to ${nameOf(recipient.address)}.`,
+        `/c/${circleId}`,
+      )
+    }
+
+    const collected = (members.length - unpaid.length) * circle.contribution
+    if (collected > 0) {
+      const { held, simulated } = await heldBalance(circleId)
+      const bonus = await yieldShare(held, simulated)
+      await run(
+        `INSERT OR IGNORE INTO payouts (id, circle_id, round, address, pot, bonus, status, created_at, kind)
+         VALUES (?, ?, ?, ?, ?, ?, 'claimable', ?, 'pot')`,
+        [newId(), circleId, circle.round, recipient.address, collected, bonus, now],
+      )
+      await notify(
+        recipient.address,
+        `pot_ready:${circleId}:${circle.round}`,
+        unpaid.length ? 'short_pot' : 'pot_ready',
+        unpaid.length
+          ? `Your ${circle.name} pot is ready: ${nim(collected)} NIM. ${unpaid.length} ${unpaid.length === 1 ? 'person still owes' : 'people still owe'}; it comes to you when they pay.`
+          : `Your ${circle.name} pot is ready: ${nim(collected)} NIM.`,
+        `/c/${circleId}/payout`,
+      )
+    }
     const next = circle.round + 1
     await run('UPDATE circles SET round = ?, status = ? WHERE id = ?', [Math.min(next, circle.size), next > circle.size ? 'done' : 'active', circleId])
     if (next > circle.size) return
   }
 }
 
-export async function recordContribution(user: User, circleId: string, hint: string | null): Promise<DepositResult> {
+/**
+ * Record a contribution for the current round, or with `round` set, a missed earlier round
+ * (which then goes to whoever got that round's short pot).
+ */
+export async function recordContribution(user: User, circleId: string, hint: string | null, round?: number): Promise<DepositResult> {
   const circle = await getCircle(circleId)
-  if (circle.status !== 'active') throw new ApiError('This circle is not collecting right now')
   const members = await membersOf(circleId)
   if (!members.some((m) => sameAddress(m.address, user.address))) throw new ApiError('You are not in this circle', 403)
+
+  let forRound = circle.round
+  if (round !== undefined && round !== circle.round) {
+    const miss = await one<MissRow>('SELECT * FROM misses WHERE circle_id = ? AND round = ? AND address = ? AND settled_tx IS NULL', [circleId, round, user.address])
+    if (!miss) throw new ApiError('You do not owe anything for that round')
+    forRound = round
+  } else if (circle.status !== 'active') {
+    throw new ApiError('This circle is not collecting right now')
+  }
+
   const result = await verifyDeposit({
     user,
     kind: 'circle',
     refId: circleId,
-    round: circle.round,
-    memo: circleMemo(circleId, circle.round),
+    round: forRound,
+    memo: circleMemo(circleId, forRound),
     minAmount: circle.contribution,
     hint,
   })
   if (result.status === 'confirmed') await advance(circleId)
   return result
 }
+
+/** Any member can nudge someone who has not paid this round; once per pair per round. */
+export async function nudge(user: User, circleId: string, address: string) {
+  const circle = await getCircle(circleId)
+  if (circle.status !== 'active') throw new ApiError('There is nothing to pay right now')
+  const members = await membersOf(circleId)
+  const from = members.find((m) => sameAddress(m.address, user.address))
+  const to = members.find((m) => sameAddress(m.address, address))
+  if (!from || !to) throw new ApiError('You are not both in this circle', 403)
+  if (sameAddress(from.address, to.address)) throw new ApiError('You cannot nudge yourself')
+  if ((await paidThisRound(circleId, circle.round)).some((a) => sameAddress(a, to.address))) throw new ApiError('They have already paid')
+  const nameOf = await names([from.address, to.address])
+  const due = dueAt(circle, circle.round)
+  const text = `${nameOf(from.address)} is reminding you to chip in ${nim(circle.contribution)} NIM for ${circle.name}${due ? ` by ${dayLabel(due, circle.cadence)}` : ''}.`
+  await notify(to.address, `nudge:${circleId}:${circle.round}:${from.address}:${to.address}`, 'nudge', text, `/c/${circleId}`)
+  return { text: `Hey ${nameOf(to.address)}, quick reminder to chip in ${nim(circle.contribution)} NIM for ${circle.name} on Circle 🙏` }
+}
+
+/** Worker: "due soon" and "you are late" reminders for everyone who has not paid this round. */
+export async function remind(circleId: string) {
+  const circle = await getCircle(circleId)
+  if (circle.status !== 'active') return
+  const due = dueAt(circle, circle.round)
+  if (!due) return
+  const now = Date.now()
+  const members = await membersOf(circleId)
+  const paid = await paidThisRound(circleId, circle.round)
+  for (const m of members) {
+    if (paid.some((a) => sameAddress(a, m.address))) continue
+    if (now >= due) {
+      await notify(m.address, `late:${circleId}:${circle.round}`, 'late', `You are late for round ${circle.round} of ${circle.name}. Chip in ${nim(circle.contribution)} NIM before the grace period ends.`, `/c/${circleId}`)
+    } else if (now >= due - remindBefore(circle.cadence)) {
+      await notify(m.address, `due:${circleId}:${circle.round}`, 'due_soon', `${circle.name}: chip in ${nim(circle.contribution)} NIM by ${dayLabel(due, circle.cadence)}.`, `/c/${circleId}`)
+    }
+  }
+}
+
+export const activeCircleIds = async () => (await all<{ id: string }>("SELECT id FROM circles WHERE status IN ('active', 'done')")).map((r) => r.id)
 
 // --- Payouts -----------------------------------------------------------------
 
@@ -305,11 +467,14 @@ export async function claimPayout(user: User, payoutId: string, method: Method, 
   return publicPayout((await one<PayoutRow>('SELECT * FROM payouts WHERE id = ?', [payoutId]))!)
 }
 
-function publicPayout(p: PayoutRow) {
+function publicPayout(p: PayoutRow, fromName?: string) {
   return {
     id: p.id,
     circleId: p.circle_id,
     round: p.round,
+    kind: p.kind,
+    /** 'late' payouts: who paid the missed contribution. */
+    fromName: fromName ?? null,
     pot: p.pot / LUNA,
     bonus: p.bonus / LUNA,
     status: p.status,
@@ -326,7 +491,7 @@ export type PublicPayout = ReturnType<typeof publicPayout>
 export async function getPayout(user: User, payoutId: string) {
   const payout = await one<PayoutRow>('SELECT * FROM payouts WHERE id = ?', [payoutId])
   if (!payout || !sameAddress(payout.address, user.address)) throw new ApiError('Payout not found', 404)
-  return publicPayout(await settle(payout))
+  return publicPayout(await settle(payout), payout.from_address ? displayName((await usersByAddress([payout.from_address])).get(payout.from_address)) : undefined)
 }
 
 // --- Views -------------------------------------------------------------------
@@ -338,14 +503,21 @@ export async function circleView(user: User, circleId: string) {
   const you = members.find((m) => sameAddress(m.address, user.address))
   if (!you) throw new ApiError('You are not in this circle', 403)
 
-  const [users, paid, payouts, balance] = await Promise.all([
+  const [users, paid, payouts, balance, misses] = await Promise.all([
     usersByAddress(members.map((m) => m.address)),
     circle.status === 'active' ? paidThisRound(circleId, circle.round) : Promise.resolve([] as string[]),
-    all<PayoutRow>('SELECT * FROM payouts WHERE circle_id = ? ORDER BY round', [circleId]),
+    all<PayoutRow>('SELECT * FROM payouts WHERE circle_id = ? ORDER BY round, created_at', [circleId]),
     heldBalance(circleId),
+    unsettledMisses(circleId),
   ])
   const earned = await yieldShare(balance.held, balance.simulated)
-  const yourPayout = payouts.filter((p) => sameAddress(p.address, user.address)).at(-1)
+  // Show what is waiting first (a pot or late money), else the latest one.
+  const mine = payouts.filter((p) => sameAddress(p.address, user.address))
+  const yourPayout = mine.find((p) => p.status === 'claimable') ?? mine.at(-1)
+  const due = circle.status === 'active' ? dueAt(circle, circle.round) : null
+  const now = Date.now()
+  const late = Boolean(due && now >= due)
+  const nameOf = (address: string) => displayName(users.get(address), user.address)
 
   return {
     id: circle.id,
@@ -359,7 +531,15 @@ export async function circleView(user: User, circleId: string) {
     inviteCode: circle.invite_code,
     orderMode: circle.order_mode,
     isCreator: sameAddress(circle.created_by, user.address),
-    roundDueAt: circle.status === 'active' ? dueAt(circle, circle.round) : null,
+    roundDueAt: due,
+    /** Past the due date with someone unpaid. */
+    late: late && paid.length < members.length,
+    /** When the pot goes out with what is in. */
+    graceEndsAt: due ? due + graceOf(circle.cadence) : null,
+    /** Rounds you missed and can still pay; the money goes to that round's member. */
+    yourMisses: misses
+      .filter((m) => sameAddress(m.address, user.address))
+      .map((m) => ({ round: m.round, amount: m.amount / LUNA, memo: circleMemo(circleId, m.round), to: nameOf(members.find((x) => x.turn === m.round)?.address ?? '') })),
     yourTurn: you.turn,
     yourTurnDueAt: dueAt(circle, you.turn),
     youPaid: paid.some((a) => sameAddress(a, user.address)),
@@ -375,10 +555,12 @@ export async function circleView(user: User, circleId: string) {
         isYou: sameAddress(m.address, user.address),
         startedIt: sameAddress(m.address, circle.created_by),
         paid: paid.some((a) => sameAddress(a, m.address)),
-        tookPot: payouts.some((p) => p.round === m.turn),
+        late: late && !paid.some((a) => sameAddress(a, m.address)),
+        owes: misses.filter((x) => sameAddress(x.address, m.address)).map((x) => x.round),
+        tookPot: payouts.some((p) => p.kind === 'pot' && p.round === m.turn),
       }
     }),
-    yourPayout: yourPayout ? publicPayout(await settle(yourPayout)) : null,
+    yourPayout: yourPayout ? publicPayout(await settle(yourPayout), yourPayout.from_address ? nameOf(yourPayout.from_address) : undefined) : null,
   }
 }
 export type CircleView = Awaited<ReturnType<typeof circleView>>
@@ -414,6 +596,8 @@ export async function myCircles(user: User) {
       const users = await usersByAddress(members.map((m) => m.address))
       const paid = fresh.status === 'active' ? await paidThisRound(c.id, fresh.round) : []
       const claimable = await one<{ id: string }>("SELECT id FROM payouts WHERE circle_id = ? AND address = ? AND status = 'claimable'", [c.id, user.address])
+      const owes = await one<{ n: number }>('SELECT COUNT(*) AS n FROM misses WHERE circle_id = ? AND address = ? AND settled_tx IS NULL', [c.id, user.address])
+      const due = fresh.status === 'active' ? dueAt(fresh, fresh.round) : null
       return {
         id: c.id,
         name: c.name,
@@ -425,10 +609,17 @@ export async function myCircles(user: User) {
         joined: members.length,
         avatars: members.map((m) => users.get(m.address)?.avatar ?? 1),
         youPaid: paid.some((a) => sameAddress(a, user.address)),
-        dueAt: fresh.status === 'active' ? dueAt(fresh, fresh.round) : null,
+        dueAt: due,
+        late: Boolean(due && Date.now() >= due && !paid.some((a) => sameAddress(a, user.address))),
+        owes: owes?.n ?? 0,
         payoutReady: Boolean(claimable),
       }
     }),
   )
 }
 export type CircleSummary = Awaited<ReturnType<typeof myCircles>>[number]
+
+/** Worker: mark bank cash-outs that have landed. */
+export async function settleCashingPayouts() {
+  for (const p of await all<PayoutRow>("SELECT * FROM payouts WHERE status = 'cashing'")) await settle(p)
+}

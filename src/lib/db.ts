@@ -66,7 +66,42 @@ const SCHEMA = [
     provider_id TEXT,
     created_at  INTEGER NOT NULL,
     settled_at  INTEGER,
-    UNIQUE (circle_id, round)
+    -- 'pot': the round's pot (one per round). 'late': a missed contribution paid afterwards,
+    -- forwarded to the member who got that round's short pot.
+    kind        TEXT NOT NULL DEFAULT 'pot',
+    from_address TEXT
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS payouts_one_pot ON payouts (circle_id, round) WHERE kind = 'pot'`,
+  // Someone did not pay before a round closed. Settled when they pay late.
+  `CREATE TABLE IF NOT EXISTS misses (
+    circle_id  TEXT NOT NULL,
+    round      INTEGER NOT NULL,
+    address    TEXT NOT NULL,
+    amount     INTEGER NOT NULL,
+    settled_tx TEXT,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (circle_id, round, address)
+  )`,
+  // In-app inbox (mini apps cannot push). `key` makes each reminder happen once.
+  `CREATE TABLE IF NOT EXISTS notices (
+    id         TEXT PRIMARY KEY,
+    key        TEXT NOT NULL UNIQUE,
+    address    TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    text       TEXT NOT NULL,
+    href       TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    read_at    INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS notices_inbox ON notices (address, read_at)`,
+  // What the worker did to the pool's stake, so it never repeats itself within an epoch.
+  `CREATE TABLE IF NOT EXISTS pool_actions (
+    id         TEXT PRIMARY KEY,
+    kind       TEXT NOT NULL,
+    amount     INTEGER NOT NULL,
+    tx_hash    TEXT,
+    note       TEXT,
+    created_at INTEGER NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS goals (
     id         TEXT PRIMARY KEY,
@@ -126,11 +161,35 @@ const SCHEMA = [
 
 let client: Promise<Client> | undefined
 
+/**
+ * Databases made before late payments had UNIQUE (circle_id, round) on payouts. SQLite cannot
+ * drop a table constraint, so rebuild the table once, keeping every row as a 'pot'.
+ */
+async function migratePayouts(db: Client) {
+  const { rows } = await db.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'payouts'")
+  if (!String(rows[0]?.sql ?? '').includes('UNIQUE (circle_id, round)')) return
+  const create = SCHEMA.find((q) => q.includes('CREATE TABLE IF NOT EXISTS payouts'))!.replace('payouts (', 'payouts_new (')
+  await db.batch(
+    [
+      create,
+      `INSERT INTO payouts_new (id, circle_id, round, address, pot, bonus, status, method, tx_hash, bank, ngn, provider_id, created_at, settled_at, kind)
+       SELECT id, circle_id, round, address, pot, bonus, status, method, tx_hash, bank, ngn, provider_id, created_at, settled_at, 'pot' FROM payouts`,
+      'DROP TABLE payouts',
+      'ALTER TABLE payouts_new RENAME TO payouts',
+    ],
+    'write',
+  )
+}
+
 async function open(): Promise<Client> {
   const { url, authToken } = serverConfig().database
   if (url.startsWith('file:')) mkdirSync(path.dirname(path.resolve(url.slice(5))), { recursive: true })
   const db = createClient({ url, authToken })
-  await db.batch(SCHEMA, 'write')
+  const payoutsIndex = SCHEMA.findIndex((q) => q.includes('payouts_one_pot'))
+  // Tables first, then migrate old payouts, then the index that needs the new column.
+  await db.batch(SCHEMA.slice(0, payoutsIndex), 'write')
+  await migratePayouts(db)
+  await db.batch(SCHEMA.slice(payoutsIndex), 'write')
   return db
 }
 

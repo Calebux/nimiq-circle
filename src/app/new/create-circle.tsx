@@ -6,8 +6,8 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { BackLink, BottomBar, PrimaryButton, Screen, nim, useCountUp } from '@/components/ui'
 import { SignedIn } from '@/components/gate'
-import { Ngn, api } from '@/components/wallet'
-import { CADENCES, LOCAL_NAMES } from '@/lib/constants'
+import { Ngn, api, useWallet } from '@/components/wallet'
+import { LOCAL_NAMES } from '@/lib/constants'
 
 const PRESETS = [10000, 25000, 50000, 100000]
 const MIN_PEOPLE = 2
@@ -41,6 +41,7 @@ function Pill({ selected, onClick, children }: { selected: boolean; onClick: () 
 }
 
 function CreateCircleForm() {
+  const { cadences } = useWallet()
   const router = useRouter()
   const [name, setName] = useState('')
   const [localName, setLocalName] = useState<string>('Ajo')
@@ -137,7 +138,7 @@ function CreateCircleForm() {
 
         <Field label="How often">
           <div className="flex flex-wrap gap-2">
-            {CADENCES.map((c) => (
+            {cadences.map((c) => (
               <Pill key={c} selected={cadence === c} onClick={() => setCadence(c)}>
                 {c}
               </Pill>

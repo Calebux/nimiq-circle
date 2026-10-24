@@ -1,13 +1,13 @@
 'use client'
 
-import { ArrowRight, Check, Gift, PencilSimple, Play, ShieldCheck, Sparkle, X } from '@phosphor-icons/react/dist/ssr'
+import { ArrowRight, BellRinging, Check, Gift, Hourglass, PencilSimple, Play, ShieldCheck, Sparkle, X } from '@phosphor-icons/react/dist/ssr'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { SignedIn, Splash } from '@/components/gate'
 import { Avatar, AvatarStack, BackLink, BottomBar, Chip, PrimaryButton, Screen, Sheet, nim, shortDate, useCountUp, useReducedMotion } from '@/components/ui'
-import { Ngn, useApi, usePayment } from '@/components/wallet'
+import { api, Ngn, useApi, usePayment } from '@/components/wallet'
 import type { CircleView } from '@/lib/circles'
 import { EditCircleSheet, RemoveSheet, StartNowSheet } from './manage'
 
@@ -49,7 +49,7 @@ function PotCard({ circle }: { circle: CircleView }) {
             <Avatar avatar={recipient.avatar} size={44} className="ring-[3px] ring-sun" />
             <div className="min-w-0 flex-1">
               <p className="truncate font-semibold">{recipient.isYou ? 'Goes to you' : `Goes to ${recipient.name}`}</p>
-              <p className="text-sm text-ink-2">{circle.roundDueAt ? shortDate(circle.roundDueAt) : 'When everyone is in'}</p>
+              <p className="text-sm text-ink-2">{circle.roundDueAt ? dueLabel(circle, circle.roundDueAt) : 'When everyone is in'}</p>
             </div>
             <span className={`rounded-full px-3 py-1 text-sm font-semibold transition-colors duration-300 ${full ? 'bg-sun text-ink' : 'bg-sun-soft text-sun-ink'}`}>
               {full ? 'Pot is full' : `Round ${circle.round}`}
@@ -131,7 +131,7 @@ function RotationDial({ circle }: { circle: CircleView }) {
         <p className="mt-6 rounded-[var(--radius-inner)] bg-sun-soft px-4 py-3 text-[15px] text-sun-ink">
           {next?.isYou ? <strong className="font-bold">You&apos;re up next. </strong> : <strong className="font-bold">Your turn: </strong>}
           Round {you.turn}
-          {circle.yourTurnDueAt ? `, ${shortDate(circle.yourTurnDueAt)}` : ''}.
+          {circle.yourTurnDueAt ? `, ${dueLabel(circle, circle.yourTurnDueAt)}` : ''}.
         </p>
       )}
     </section>
@@ -153,21 +153,61 @@ function EarnCard({ earned }: { earned: number }) {
         <p className="mt-0.5 text-sm leading-snug text-mint-ink">
           {earned > 0 ? 'Earned by staking the pot while it waits. It goes out with each pot.' : 'The pot is staked while it waits. Earnings show up here and go out with each pot.'}
         </p>
+        <Link href="/pool" className="mt-1 inline-block text-sm font-bold text-mint-ink underline decoration-2 underline-offset-4">
+          See the pool on chain
+        </Link>
       </div>
     </section>
+  )
+}
+
+/** "Sun 14:05" */
+const dueTime = (ms: number) => new Date(ms).toLocaleString('en-GB', { weekday: 'short', hour: 'numeric', minute: '2-digit' })
+
+/** A round's date; with the 10-minute demo cadence the time is what matters. */
+const dueLabel = (circle: CircleView, ms: number) => (circle.cadence === 'Every 10 min' ? dueTime(ms) : shortDate(ms))
+
+function NudgeButton({ circle, member }: { circle: CircleView; member: Member }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle')
+  async function go() {
+    setState('busy')
+    try {
+      const { text } = await api<{ text: string }>(`/api/circles/${circle.id}/nudge`, { body: { address: member.address } })
+      setState('done')
+      // Their in-app inbox has it; offer WhatsApp & co. as well, since mini apps cannot push.
+      if (navigator.share) await navigator.share({ text: `${text}\n${window.location.origin}/c/${circle.id}` }).catch(() => undefined)
+    } catch {
+      setState('done')
+    }
+  }
+  return (
+    <button onClick={go} disabled={state !== 'idle'} className="press inline-flex h-8 items-center gap-1 rounded-full bg-blush px-3 text-sm font-bold text-ink disabled:opacity-60">
+      {state === 'done' ? (
+        <>
+          <Check size={13} weight="bold" /> Nudged
+        </>
+      ) : (
+        <>
+          <BellRinging size={14} weight="bold" /> Nudge
+        </>
+      )}
+    </button>
   )
 }
 
 function MembersCard({ circle }: { circle: CircleView }) {
   const ordered = useMemo(() => [...circle.members].sort((a, b) => a.turn - b.turn), [circle.members])
   const paid = circle.members.filter((m) => m.paid).length
+  const active = circle.status === 'active'
   return (
     <section className="rounded-card bg-white p-5 shadow-soft">
       <div className="flex items-baseline justify-between">
-        <h2 className="font-display text-xl font-bold tracking-tight">This round</h2>
-        <p className="text-sm tabular-nums text-ink-2">
-          {paid} of {circle.size} paid
-        </p>
+        <h2 className="font-display text-xl font-bold tracking-tight">{active ? 'This round' : 'Members'}</h2>
+        {active && (
+          <p className="text-sm tabular-nums text-ink-2">
+            {paid} of {circle.size} paid
+          </p>
+        )}
       </div>
       <ul className="mt-3 flex flex-col gap-3">
         {ordered.map((m: Member) => (
@@ -175,20 +215,76 @@ function MembersCard({ circle }: { circle: CircleView }) {
             <Avatar avatar={m.avatar} size={44} />
             <div className="min-w-0 flex-1">
               <p className="truncate font-semibold">{m.name}</p>
-              <p className="text-sm text-ink-2">{m.tookPot ? `Took the pot in round ${m.turn}` : `Takes the pot in round ${m.turn}`}</p>
+              <p className="text-sm text-ink-2">
+                {m.owes.length > 0 ? (
+                  <span className="font-semibold text-coral-ink">Owes round {m.owes.join(', ')}</span>
+                ) : m.tookPot ? (
+                  `Took the pot in round ${m.turn}`
+                ) : (
+                  `Takes the pot in round ${m.turn}`
+                )}
+              </p>
             </div>
-            {m.paid ? (
+            {!active ? null : m.paid ? (
               <Chip tone="mint">
                 <Check size={13} weight="bold" /> Paid
               </Chip>
-            ) : m.isYou ? (
-              <Chip tone="coral">Not yet</Chip>
+            ) : !m.isYou ? (
+              <div className="flex items-center gap-1.5">
+                {m.late && <Chip tone="coral">Late</Chip>}
+                <NudgeButton circle={circle} member={m} />
+              </div>
             ) : (
-              <Chip tone="lilac">Waiting</Chip>
+              <Chip tone="coral">{m.late ? 'Late' : 'Not yet'}</Chip>
             )}
           </li>
         ))}
       </ul>
+    </section>
+  )
+}
+
+function LateBanner({ circle }: { circle: CircleView }) {
+  if (!circle.late || !circle.graceEndsAt) return null
+  const unpaid = circle.members.filter((m) => !m.paid).length
+  return (
+    <section className="pop-in flex gap-3 rounded-card bg-sun-soft p-4 text-sun-ink">
+      <Hourglass size={22} weight="fill" className="mt-0.5 shrink-0" />
+      <p className="text-[15px] leading-snug">
+        <strong className="font-bold">Round {circle.round} is late.</strong> {unpaid} {unpaid === 1 ? 'person has' : 'people have'} until {dueTime(circle.graceEndsAt)}. After that the pot goes out with what is in, and anyone who missed still owes it.
+      </p>
+    </section>
+  )
+}
+
+/** Rounds you missed. Paying goes straight to whoever got that short pot. */
+function OwedCard({ circle, reload }: { circle: CircleView; reload: () => void }) {
+  const payment = usePayment()
+  const [paying, setPaying] = useState<number | null>(null)
+  if (circle.yourMisses.length === 0) return null
+  async function pay(m: CircleView['yourMisses'][number]) {
+    setPaying(m.round)
+    const ok = await payment.run({ nim: m.amount, memo: m.memo, confirmUrl: `/api/circles/${circle.id}/contribution`, extra: { round: m.round } })
+    setPaying(null)
+    if (ok) reload()
+  }
+  return (
+    <section className="rounded-card bg-coral-soft p-5 shadow-soft">
+      <h2 className="font-display text-xl font-bold tracking-tight">You owe</h2>
+      <ul className="mt-3 flex flex-col gap-2">
+        {circle.yourMisses.map((m) => (
+          <li key={m.round} className="flex items-center gap-3 rounded-[var(--radius-inner)] bg-white p-3">
+            <div className="flex-1">
+              <p className="font-semibold">Round {m.round}: {nim(m.amount)} NIM</p>
+              <p className="text-sm text-ink-2">Goes to {m.to}, who got a short pot</p>
+            </div>
+            <button onClick={() => pay(m)} disabled={paying !== null} className="press h-10 rounded-full bg-coral px-4 font-bold text-white disabled:opacity-60">
+              {paying === m.round ? (payment.state === 'confirming' ? 'Confirming…' : 'Approve…') : 'Pay now'}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {payment.error && <p className="mt-3 text-sm text-coral-ink">{payment.error}</p>}
     </section>
   )
 }
@@ -223,7 +319,7 @@ function ChipInSheet({ circle, open, onOpenChange, onPaid }: { circle: CircleVie
       open={open}
       onOpenChange={onOpenChange}
       title={`Chip in for round ${circle.round}`}
-      description={recipient ? `The pot goes to ${recipient.isYou ? 'you' : recipient.name}${circle.roundDueAt ? ` on ${shortDate(circle.roundDueAt)}` : ''}.` : undefined}
+      description={recipient ? `The pot goes to ${recipient.isYou ? 'you' : recipient.name}${circle.roundDueAt ? ` on ${dueLabel(circle, circle.roundDueAt)}` : ''}.` : undefined}
     >
       <div className="rounded-card bg-white p-5 text-center shadow-soft">
         <p className="font-display text-[44px] font-extrabold leading-none tracking-tight tabular-nums">{nim(circle.contribution)}</p>
@@ -282,7 +378,7 @@ function PayoutBanner({ circle }: { circle: CircleView }) {
         <Gift size={22} weight="fill" className="text-coral" />
       </span>
       <span className="flex-1">
-        <span className="block font-display text-lg font-extrabold leading-tight">Your pot is ready</span>
+        <span className="block font-display text-lg font-extrabold leading-tight">{p.kind === 'late' ? `Late money from ${p.fromName}` : 'Your pot is ready'}</span>
         <span className="text-sm text-sun-ink">{nim(p.pot + p.bonus, 2)} NIM is waiting for you</span>
       </span>
       <ArrowRight size={20} weight="bold" />
@@ -386,12 +482,13 @@ function Filling({ circle, onChange, reload }: { circle: CircleView; onChange: (
   )
 }
 
-function Done({ circle }: { circle: CircleView }) {
+function Done({ circle, reload }: { circle: CircleView; reload: () => void }) {
   return (
     <Screen>
       <Header circle={circle} />
       <div className="mt-6 flex flex-col gap-4">
         <PayoutBanner circle={circle} />
+        <OwedCard circle={circle} reload={reload} />
         <section className="rounded-card bg-mint-soft p-6 text-center shadow-soft">
           <Image src="/art/friends.webp" alt="" width={1200} height={714} className="mx-auto w-[85%]" />
           <h2 className="mt-4 font-display text-2xl font-extrabold tracking-tight text-mint-ink">Everyone took their turn</h2>
@@ -415,6 +512,8 @@ function Active({ circle, reload }: { circle: CircleView; reload: () => void }) 
       <Header circle={circle} />
       <div className="mt-6 flex flex-col gap-4">
         <PayoutBanner circle={circle} />
+        <OwedCard circle={circle} reload={reload} />
+        <LateBanner circle={circle} />
         <PotCard circle={circle} />
         <RotationDial circle={circle} />
         <EarnCard earned={circle.earned} />
@@ -452,7 +551,7 @@ function CircleLoader({ id }: { id: string }) {
   }
   if (!data) return <Splash />
   if (data.status === 'filling') return <Filling circle={data} onChange={setData} reload={reload} />
-  if (data.status === 'done') return <Done circle={data} />
+  if (data.status === 'done') return <Done circle={data} reload={reload} />
   return <Active circle={data} reload={reload} />
 }
 

@@ -3,9 +3,9 @@
 import { Minus, Plus, Shuffle, UsersThree } from '@phosphor-icons/react/dist/ssr'
 import { useState } from 'react'
 import { PrimaryButton, SecondaryButton, Sheet, nim } from '@/components/ui'
-import { Ngn, api } from '@/components/wallet'
+import { Ngn, api, useWallet } from '@/components/wallet'
 import type { CircleView } from '@/lib/circles'
-import { CADENCES, LOCAL_NAMES } from '@/lib/constants'
+import { LOCAL_NAMES } from '@/lib/constants'
 
 const MIN_SIZE = 2
 const MAX_SIZE = 12
@@ -38,6 +38,7 @@ function ErrorNote({ error }: { error: string | null }) {
 
 /** Creator-only, while filling: every term, and the size down to whoever has joined. */
 export function EditCircleSheet({ circle, open, onOpenChange, onSaved }: { circle: CircleView; open: boolean; onOpenChange: (o: boolean) => void; onSaved: (c: CircleView) => void }) {
+  const { cadences } = useWallet()
   const joined = circle.members.length
   const [name, setName] = useState(circle.name)
   const [localName, setLocalName] = useState(circle.localName)
@@ -129,7 +130,7 @@ export function EditCircleSheet({ circle, open, onOpenChange, onSaved }: { circl
         <section className="flex flex-col gap-2">
           <Label>How often</Label>
           <div className="flex flex-wrap gap-2">
-            {CADENCES.map((c) => (
+            {cadences.map((c) => (
               <Pill key={c} selected={cadence === c} onClick={() => setCadence(c)}>
                 {c}
               </Pill>
