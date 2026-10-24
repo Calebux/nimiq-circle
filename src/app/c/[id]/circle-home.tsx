@@ -1,14 +1,16 @@
 'use client'
 
-import { ArrowRight, Check, Gift, ShieldCheck, Sparkle } from '@phosphor-icons/react/dist/ssr'
+import { ArrowRight, Check, Gift, PencilSimple, Play, ShieldCheck, Sparkle, X } from '@phosphor-icons/react/dist/ssr'
 import Image from 'next/image'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { SignedIn, Splash } from '@/components/gate'
 import { Avatar, AvatarStack, BackLink, BottomBar, Chip, PrimaryButton, Screen, Sheet, naira, nim, shortDate, useCountUp, useReducedMotion } from '@/components/ui'
 import { useApi, usePayment } from '@/components/wallet'
 import type { CircleView } from '@/lib/circles'
 import { NGN_PER_NIM } from '@/lib/constants'
+import { EditCircleSheet, RemoveSheet, StartNowSheet } from './manage'
 
 type Member = CircleView['members'][number]
 
@@ -289,24 +291,98 @@ function PayoutBanner({ circle }: { circle: CircleView }) {
   )
 }
 
-function Filling({ circle }: { circle: CircleView }) {
-  const missing = circle.size - circle.members.length
+function Filling({ circle, onChange, reload }: { circle: CircleView; onChange: (c: CircleView) => void; reload: () => void }) {
+  const router = useRouter()
+  const [editing, setEditing] = useState(false)
+  const [starting, setStarting] = useState(false)
+  const [removing, setRemoving] = useState<Member | null>(null)
+  const joined = circle.members.length
+  const missing = circle.size - joined
+  const you = circle.members.find((m) => m.isYou)
+
   return (
     <Screen>
       <Header circle={circle} />
       <section className="mt-6 rounded-card bg-lilac-soft p-6 text-center shadow-soft">
-        <Image src="/art/invite.webp" alt="" width={567} height={600} className="mx-auto w-[130px]" />
+        <Image src="/art/invite.webp" alt="" width={567} height={600} className="mx-auto w-[120px]" />
         <h2 className="mt-4 font-display text-2xl font-extrabold tracking-tight">
           Waiting for {missing} more {missing === 1 ? 'person' : 'people'}
         </h2>
         <p className="mt-1 text-[15px] text-lilac-ink">Round 1 starts when every seat is taken. Nobody pays until then.</p>
-        <div className="mt-4 flex justify-center">
-          <AvatarStack avatars={circle.members.map((m) => m.avatar)} size={40} max={6} />
+        <div className="mt-4 grid grid-cols-3 gap-2 text-left">
+          {[
+            ['NIM a round', nim(circle.contribution)],
+            ['How often', circle.cadence],
+            ['NIM a pot', nim(circle.contribution * circle.size)],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-[var(--radius-inner)] bg-white p-3">
+              <p className="text-xs font-semibold text-ink-2">{label}</p>
+              <p className="truncate font-bold tabular-nums">{value}</p>
+            </div>
+          ))}
         </div>
       </section>
+
+      {circle.isCreator && (
+        <div className={`mt-3 grid gap-2 ${joined >= 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          <button onClick={() => setEditing(true)} className="press flex h-12 items-center justify-center gap-2 rounded-full bg-white font-bold shadow-soft">
+            <PencilSimple size={18} weight="bold" /> Edit circle
+          </button>
+          {joined >= 2 && (
+            <button onClick={() => setStarting(true)} className="press flex h-12 items-center justify-center gap-2 rounded-full bg-ink font-bold text-white shadow-soft">
+              <Play size={16} weight="fill" /> Start with {joined}
+            </button>
+          )}
+        </div>
+      )}
+
+      <section className="mt-4 rounded-card bg-white p-5 shadow-soft">
+        <div className="flex items-baseline justify-between">
+          <h2 className="font-display text-xl font-bold tracking-tight">Who&apos;s in</h2>
+          <p className="text-sm tabular-nums text-ink-2">
+            {joined} of {circle.size}
+          </p>
+        </div>
+        <ul className="mt-3 flex flex-col gap-3">
+          {circle.members.map((m) => (
+            <li key={m.address} className="flex items-center gap-3">
+              <Avatar avatar={m.avatar} size={44} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-semibold">{m.name}</p>
+                <p className="text-sm text-ink-2">{m.startedIt ? 'Started the circle' : `Turn ${m.turn}`}</p>
+              </div>
+              {circle.isCreator && !m.isYou && (
+                <button onClick={() => setRemoving(m)} aria-label={`Remove ${m.name}`} className="press grid size-9 place-items-center rounded-full bg-blush text-ink-2">
+                  <X size={16} weight="bold" />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+        {!circle.isCreator && you && (
+          <button onClick={() => setRemoving(you)} className="mt-4 text-sm font-semibold text-coral-ink underline decoration-2 underline-offset-4">
+            Leave this circle
+          </button>
+        )}
+      </section>
+
       <BottomBar>
         <PrimaryButton href={`/c/${circle.id}/invite`}>Invite people</PrimaryButton>
       </BottomBar>
+
+      {circle.isCreator && (
+        <>
+          {/* key: reopen with the latest terms after a save or someone joining */}
+          <EditCircleSheet key={`${circle.size}-${circle.contribution}-${joined}-${editing}`} circle={circle} open={editing} onOpenChange={setEditing} onSaved={onChange} />
+          <StartNowSheet circle={circle} open={starting} onOpenChange={setStarting} onStarted={onChange} />
+        </>
+      )}
+      <RemoveSheet
+        circle={circle}
+        member={removing}
+        onOpenChange={(o) => !o && setRemoving(null)}
+        onDone={() => (removing?.isYou ? router.push('/') : reload())}
+      />
     </Screen>
   )
 }
@@ -366,7 +442,7 @@ function Active({ circle, reload }: { circle: CircleView; reload: () => void }) 
 
 function CircleLoader({ id }: { id: string }) {
   // Poll so other members' payments and the round turning show up without a refresh.
-  const { data, error, reload } = useApi<CircleView>(`/api/circles/${id}`, 10_000)
+  const { data, error, reload, setData } = useApi<CircleView>(`/api/circles/${id}`, 10_000)
   if (error && !data) {
     return (
       <Screen bar={false}>
@@ -376,7 +452,7 @@ function CircleLoader({ id }: { id: string }) {
     )
   }
   if (!data) return <Splash />
-  if (data.status === 'filling') return <Filling circle={data} />
+  if (data.status === 'filling') return <Filling circle={data} onChange={setData} reload={reload} />
   if (data.status === 'done') return <Done circle={data} />
   return <Active circle={data} reload={reload} />
 }

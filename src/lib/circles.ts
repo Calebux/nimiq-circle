@@ -5,7 +5,7 @@ import { bankLanded, deliver, type BankDetails, type Method } from './delivery'
 import { circleMemo, isSimulated, reconcile, verifyDeposit, type DepositResult } from './deposits'
 import { serverConfig } from './env'
 import { ApiError } from './errors'
-import { sameAddress } from './nimiq/address'
+import { formatAddress, sameAddress } from './nimiq/address'
 import { yieldShare } from './yield'
 
 export const CADENCE_DAYS: Record<string, number> = { Weekly: 7, 'Every 2 weeks': 14, Monthly: 30 }
@@ -69,19 +69,37 @@ const membersOf = (id: string) => all<MemberRow>('SELECT * FROM members WHERE ci
 
 // --- Create / join -----------------------------------------------------------
 
-export async function createCircle(by: User, input: { name: string; localName: string; cadence: string; contributionNim: number; size: number; order: 'join' | 'shuffle' }) {
+export interface CircleSettings {
+  name: string
+  localName: string
+  cadence: string
+  contributionNim: number
+  size: number
+  order: 'join' | 'shuffle'
+}
+
+export const MIN_SIZE = 2
+export const MAX_SIZE = 12
+
+function validateSettings(input: CircleSettings) {
   const name = input.name.trim().slice(0, 32)
   if (!name) throw new ApiError('Give your circle a name')
   if (!CADENCE_DAYS[input.cadence]) throw new ApiError('Pick how often')
   if (!Number.isInteger(input.contributionNim) || input.contributionNim < 1 || input.contributionNim > 1_000_000) throw new ApiError('Pick an amount between 1 and 1,000,000 NIM')
-  if (!Number.isInteger(input.size) || input.size < 2 || input.size > 12) throw new ApiError('Circles have 2 to 12 people')
+  if (!Number.isInteger(input.size) || input.size < MIN_SIZE || input.size > MAX_SIZE) throw new ApiError(`Circles have ${MIN_SIZE} to ${MAX_SIZE} people`)
+  return { ...input, name, localName: input.localName.slice(0, 16) }
+}
+
+export async function createCircle(by: User, settings: CircleSettings) {
+  const input = validateSettings(settings)
+  const name = input.name
 
   const id = newId()
   const now = Date.now()
   await run(
     `INSERT INTO circles (id, name, local_name, cadence, contribution, size, order_mode, invite_code, status, round, created_by, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'filling', 0, ?, ?)`,
-    [id, name, input.localName.slice(0, 16), input.cadence, input.contributionNim * LUNA, input.size, input.order, inviteCode(name), by.address, now],
+    [id, name, input.localName, input.cadence, input.contributionNim * LUNA, input.size, input.order, inviteCode(name), by.address, now],
   )
   await run('INSERT INTO members (circle_id, address, turn, joined_at) VALUES (?, ?, 1, ?)', [id, by.address, now])
   return id
@@ -102,6 +120,61 @@ export async function joinCircle(user: User, code: string) {
   await run('INSERT INTO members (circle_id, address, turn, joined_at) VALUES (?, ?, ?, ?)', [circle.id, user.address, members.length + 1, Date.now()])
   if (members.length + 1 === circle.size) await startCircle(circle)
   return circle.id
+}
+
+// --- Before round 1: the creator can still change things ----------------------
+
+async function ownFilling(user: User, circleId: string) {
+  const circle = await getCircle(circleId)
+  if (!sameAddress(circle.created_by, user.address)) throw new ApiError('Only the person who started the circle can change it', 403)
+  if (circle.status !== 'filling') throw new ApiError('This circle has started. Its terms can no longer change.')
+  return circle
+}
+
+/** Close the turn gaps someone leaving creates, keeping join order. */
+async function renumber(circleId: string) {
+  const members = await all<MemberRow>('SELECT * FROM members WHERE circle_id = ? ORDER BY joined_at, turn', [circleId])
+  for (const m of members) await run('UPDATE members SET turn = -turn WHERE circle_id = ? AND address = ?', [circleId, m.address])
+  for (const [i, m] of members.entries()) await run('UPDATE members SET turn = ? WHERE circle_id = ? AND address = ?', [i + 1, circleId, m.address])
+}
+
+export async function updateCircle(user: User, circleId: string, settings: CircleSettings) {
+  const circle = await ownFilling(user, circleId)
+  const input = validateSettings(settings)
+  const joined = (await membersOf(circleId)).length
+  if (input.size < joined) throw new ApiError(`${joined} people have already joined. Remove someone first to go smaller.`)
+  await run('UPDATE circles SET name = ?, local_name = ?, cadence = ?, contribution = ?, size = ?, order_mode = ? WHERE id = ?', [
+    input.name,
+    input.localName,
+    input.cadence,
+    input.contributionNim * LUNA,
+    input.size,
+    input.order,
+    circleId,
+  ])
+  // Shrinking to exactly who is here means everyone is in: start.
+  if (input.size === joined) await startCircle({ ...circle, order_mode: input.order })
+}
+
+/** Start with the people who joined; the circle and its pot shrink to match. */
+export async function startNow(user: User, circleId: string) {
+  const circle = await ownFilling(user, circleId)
+  const joined = (await membersOf(circleId)).length
+  if (joined < MIN_SIZE) throw new ApiError(`A circle needs at least ${MIN_SIZE} people`)
+  await run('UPDATE circles SET size = ? WHERE id = ?', [joined, circleId])
+  await startCircle(circle)
+}
+
+/** Creator removes someone, or a member leaves, before round 1. Nobody has paid yet. */
+export async function removeMember(user: User, circleId: string, address: string) {
+  const circle = await getCircle(circleId)
+  if (circle.status !== 'filling') throw new ApiError('This circle has started. Members can no longer leave.')
+  const self = sameAddress(address, user.address)
+  if (sameAddress(address, circle.created_by)) throw new ApiError(self ? 'You started this circle, so you can\'t leave it. You can change it instead.' : 'The creator stays in the circle')
+  if (!self && !sameAddress(circle.created_by, user.address)) throw new ApiError('Only the person who started the circle can remove people', 403)
+  const result = await run('DELETE FROM members WHERE circle_id = ? AND address = ?', [circleId, formatAddress(address)])
+  if (result.rowsAffected === 0) throw new ApiError('They are not in this circle', 404)
+  await renumber(circleId)
 }
 
 async function startCircle(circle: CircleRow) {
@@ -284,6 +357,8 @@ export async function circleView(user: User, circleId: string) {
     status: circle.status,
     round: circle.round,
     inviteCode: circle.invite_code,
+    orderMode: circle.order_mode,
+    isCreator: sameAddress(circle.created_by, user.address),
     roundDueAt: circle.status === 'active' ? dueAt(circle, circle.round) : null,
     yourTurn: you.turn,
     yourTurnDueAt: dueAt(circle, you.turn),
@@ -298,6 +373,7 @@ export async function circleView(user: User, circleId: string) {
         avatar: u?.avatar ?? 1,
         turn: m.turn,
         isYou: sameAddress(m.address, user.address),
+        startedIt: sameAddress(m.address, circle.created_by),
         paid: paid.some((a) => sameAddress(a, m.address)),
         tookPot: payouts.some((p) => p.round === m.turn),
       }

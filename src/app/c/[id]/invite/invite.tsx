@@ -2,6 +2,7 @@
 
 import { Check, Copy, Plus, ShareNetwork } from '@phosphor-icons/react/dist/ssr'
 import Image from 'next/image'
+import Link from 'next/link'
 import { useState } from 'react'
 import { SignedIn, Splash } from '@/components/gate'
 import { Avatar, BackLink, BottomBar, PrimaryButton, Screen, nim } from '@/components/ui'
@@ -96,6 +97,11 @@ function Invite({ circle }: { circle: CircleView }) {
         <p className="mt-4 rounded-[var(--radius-inner)] bg-blush px-4 py-3 text-sm text-ink-2">
           {full ? 'Everyone is in. The order above is who takes the pot each round.' : 'Round 1 starts when every seat is taken. Nobody pays until then.'}
         </p>
+        {circle.isCreator && !full && (
+          <Link href={`/c/${circle.id}`} className="mt-3 inline-block text-sm font-semibold text-coral-ink underline decoration-2 underline-offset-4">
+            Not everyone coming? Change details or start early
+          </Link>
+        )}
       </section>
 
       <BottomBar>
