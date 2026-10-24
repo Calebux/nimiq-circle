@@ -2,6 +2,7 @@
 
 import { Ticket } from '@phosphor-icons/react/dist/ssr'
 import Image from 'next/image'
+import Link from 'next/link'
 import { PrimaryButton, Screen, SecondaryButton } from './ui'
 import { useWallet } from './wallet'
 
@@ -50,7 +51,16 @@ export function Welcome({ title, children }: { title?: React.ReactNode; children
               <Ticket size={20} weight="bold" /> Open this in Nimiq Pay
             </SecondaryButton>
           )}
-          {inNimiqPay && <p className="text-center text-xs text-ink-2">You will sign a message to prove the wallet is yours. No money moves.</p>}
+          <p className="text-center text-xs text-ink-2">
+            {inNimiqPay && 'You will sign a message to prove the wallet is yours. No money moves. '}
+            <Link href="/privacy" className="underline underline-offset-2">
+              What Circle stores
+            </Link>
+            {' · '}
+            <Link href="/pool" className="underline underline-offset-2">
+              The pool on chain
+            </Link>
+          </p>
         </div>
       </div>
     </Screen>
