@@ -14,13 +14,14 @@ export function Splash() {
   )
 }
 
-/** First run and signed-out state: what Circle is, then one tap to sign in with the wallet. */
+/** First run and signed-out state: what Akilii is, then one tap to sign in with the wallet. */
 export function Welcome({ title, children }: { title?: React.ReactNode; children?: React.ReactNode }) {
   const { phase, signIn, error, inNimiqPay, devWallet } = useWallet()
   const canSignIn = inNimiqPay || devWallet
   return (
     <Screen bar={false}>
       <div className="flex min-h-[calc(100svh-40px)] flex-col">
+        <p className="font-display text-2xl font-extrabold tracking-tight">Akilii</p>
         <div className="flex flex-1 flex-col justify-center">
           {children ?? (
             <>
@@ -28,9 +29,9 @@ export function Welcome({ title, children }: { title?: React.ReactNode; children
               <h1 className="mt-6 font-display text-[40px] font-extrabold leading-[1.02] tracking-tight">
                 {title ?? (
                   <>
-                    Save together.
+                    The perfect
                     <br />
-                    Take turns.
+                    money app.
                   </>
                 )}
               </h1>
@@ -54,7 +55,7 @@ export function Welcome({ title, children }: { title?: React.ReactNode; children
           <p className="text-center text-xs text-ink-2">
             {inNimiqPay && 'You will sign a message to prove the wallet is yours. No money moves. '}
             <Link href="/privacy" className="underline underline-offset-2">
-              What Circle stores
+              What Akilii stores
             </Link>
             {' · '}
             <Link href="/pool" className="underline underline-offset-2">

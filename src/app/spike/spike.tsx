@@ -259,7 +259,7 @@ function EvmCheck() {
   }
 
   return (
-    <Card n={3} title="USDT on Polygon" question="Does Nimiq Pay give Circle a Polygon wallet, and can it read your USDT and POL? Nothing is sent.">
+    <Card n={3} title="USDT on Polygon" question="Does Nimiq Pay give Akilii a Polygon wallet, and can it read your USDT and POL? Nothing is sent.">
       <button className={buttonClass} disabled={busy} onClick={run}>
         {busy ? 'Checking…' : 'Check my USDT wallet'}
       </button>
@@ -314,7 +314,7 @@ export function Spike() {
   return (
     <main className="mx-auto flex w-full max-w-md flex-col gap-4 p-4">
       <header>
-        <h1 className="text-2xl font-extrabold">Circle spike</h1>
+        <h1 className="text-2xl font-extrabold">Akilii spike</h1>
         <p className="text-sm text-black/60">Pre-build checks: contribute and stake. Cash-out now runs through the app&apos;s treasury.</p>
       </header>
       <ContributeCheck pool={pool} />

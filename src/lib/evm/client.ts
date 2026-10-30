@@ -9,7 +9,7 @@ export const hasEvmWallet = () => typeof window !== 'undefined' && Boolean((wind
 
 function ethereum(): Eip1193 {
   const provider = (window as { ethereum?: Eip1193 }).ethereum
-  if (!provider) throw new Error('Open Circle inside Nimiq Pay to use USDT')
+  if (!provider) throw new Error('Open Akilii inside Nimiq Pay to use USDT')
   return provider
 }
 

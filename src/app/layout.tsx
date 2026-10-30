@@ -20,8 +20,16 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Circle",
-  description: "Save together, take turns. A savings circle for Nimiq Pay.",
+  metadataBase: new URL("https://akilii.xyz"),
+  applicationName: "Akilii",
+  title: "Akilii | The perfect money app",
+  description: "The perfect money app. Save together, take turns, and build your savings with Nimiq Pay.",
+  openGraph: {
+    siteName: "Akilii",
+    title: "Akilii | The perfect money app",
+    description: "The perfect money app. Save together, take turns, and build your savings with Nimiq Pay.",
+    type: "website",
+  },
 };
 
 export const viewport: Viewport = {

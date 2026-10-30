@@ -108,7 +108,7 @@ function ProfileSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
         </PrimaryButton>
         <div className="flex items-center justify-center gap-5 py-2 text-sm font-semibold">
           <Link href="/privacy" className="text-ink-2 underline underline-offset-2">
-            What Circle stores
+            What Akilii stores
           </Link>
           <button onClick={signOut} className="text-coral-ink">
             Sign out
@@ -313,6 +313,7 @@ function HomeContent() {
     <Screen bar={false}>
       <header className="flex items-center justify-between">
         <div>
+          <p className="mb-2 font-display text-lg font-extrabold tracking-tight">Akilii</p>
           <p className="text-sm text-ink-2">
             {greeting()}
             {me?.name ? `, ${me.name}` : ''}

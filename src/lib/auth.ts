@@ -53,7 +53,7 @@ export function displayName(user: Pick<User, 'name' | 'address'> | undefined, vi
 // --- Sign-in -----------------------------------------------------------------
 
 export function signInMessage(nonce: string) {
-  return `Sign in to Circle\n\nThis proves you own this wallet. It does not move any money.\n\nCode: ${nonce}`
+  return `Sign in to Akilii\n\nThis proves you own this wallet. It does not move any money.\n\nCode: ${nonce}`
 }
 
 export async function createChallenge() {

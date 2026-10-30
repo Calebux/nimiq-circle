@@ -41,7 +41,7 @@ export function parseBank(value: unknown): BankDetails {
 async function usdtDestination(to: User, evmAddress?: string) {
   if (evmAddress && isEvmAddress(evmAddress)) return evmAddress
   const row = await one<{ evm_address: string | null }>('SELECT evm_address FROM users WHERE address = ?', [to.address])
-  if (!row?.evm_address) throw new ApiError('Open Circle in Nimiq Pay so we know where to send your USDT')
+  if (!row?.evm_address) throw new ApiError('Open Akilii in Nimiq Pay so we know where to send your USDT')
   return row.evm_address
 }
 

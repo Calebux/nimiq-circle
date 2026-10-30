@@ -1,4 +1,8 @@
-# Nimiq Circle
+# Akilii
+
+**The perfect money app.**
+
+Domain: [akilii.xyz](https://akilii.xyz).
 
 A savings circle (ajo / tanda / susu / chama) for Nimiq Pay: members contribute NIM each round, one member takes the pot in turn, idle NIM is staked, and payouts can be cashed out to a Nigerian bank.
 

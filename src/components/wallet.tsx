@@ -138,7 +138,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         const { user } = await api<{ user: Me }>('/api/auth/dev', { method: 'POST' })
         setMe(user)
       } else {
-        throw new Error('Open Circle inside Nimiq Pay to continue')
+        throw new Error('Open Akilii inside Nimiq Pay to continue')
       }
       setPhase('ready')
       return true
@@ -159,7 +159,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     async ({ amount, currency, memo }: { amount: number; currency: Currency; memo: string }) => {
       if (!nimiq) {
         if (me?.dev) return `mock:${memo}`
-        throw new Error('Open Circle inside Nimiq Pay to pay')
+        throw new Error('Open Akilii inside Nimiq Pay to pay')
       }
       if (currency === 'USDT') return payUsdt({ amount, memo, to: config?.usdtPoolAddress ?? null })
       if (!config?.poolAddress) throw new Error('Payments are not set up yet')

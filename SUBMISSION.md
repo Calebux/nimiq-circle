@@ -4,11 +4,14 @@
 **Deadline:** 11 Nov 2026, 23:59 UTC. Submissions go public for community testing at the start of week 3 (≈ 28 Oct), so deploy before then.
 **Lead:** Caleb Peterson ([@Calebux](https://github.com/Calebux)), payout wallet: _add_
 
+**App:** Akilii · akilii.xyz
+**Motto:** The perfect money app.
+
 ## Description (≤ 250 words)
 
-Circle brings the savings circle to Nimiq Pay. A billion people already save this way. Nigerians call it ajo or esusu, Mexicans tanda, Kenyans chama, Caribbean families susu or pardner. Friends chip in the same amount every round, and each round one person takes the whole pot.
+Akilii brings the savings circle to Nimiq Pay. A billion people already save this way. Nigerians call it ajo or esusu, Mexicans tanda, Kenyans chama, Caribbean families susu or pardner. Friends chip in the same amount every round, and each round one person takes the whole pot.
 
-Circle makes it trustless where it used to need trust. Every contribution is a NIM payment from Nimiq Pay to a public pool address, tagged with the circle and round, so anyone can check who paid. Pots go out automatically on the due date. Late payers get reminders, a grace period, and a debt that goes straight to whoever got a short pot when they settle it.
+Akilii makes it trustless where it used to need trust. Every contribution is a NIM payment from Nimiq Pay to a public pool address, tagged with the circle and round, so anyone can check who paid. Pots go out automatically on the due date. Late payers get reminders, a grace period, and a debt that goes straight to whoever got a short pot when they settle it.
 
 While money waits for its turn it is staked with a Nimiq validator, so later turns earn more, which finally makes being last in the circle fair. A public proof-of-reserves page shows the pool's on-chain balance against what members are owed.
 

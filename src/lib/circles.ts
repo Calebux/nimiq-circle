@@ -416,7 +416,7 @@ export async function nudge(user: User, circleId: string, address: string) {
   const due = dueAt(circle, circle.round)
   const text = `${nameOf(from.address)} is reminding you to chip in ${money(circle.contribution, circle.currency)} for ${circle.name}${due ? ` by ${dayLabel(due, circle.cadence)}` : ''}.`
   await notify(to.address, `nudge:${circleId}:${circle.round}:${from.address}:${to.address}`, 'nudge', text, `/c/${circleId}`)
-  return { text: `Hey ${nameOf(to.address)}, quick reminder to chip in ${money(circle.contribution, circle.currency)} for ${circle.name} on Circle 🙏` }
+  return { text: `Hey ${nameOf(to.address)}, quick reminder to chip in ${money(circle.contribution, circle.currency)} for ${circle.name} on Akilii 🙏` }
 }
 
 /** Worker: "due soon" and "you are late" reminders for everyone who has not paid this round. */

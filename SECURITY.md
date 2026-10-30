@@ -1,6 +1,6 @@
 # Security
 
-Circle has no smart contracts. Members' money sits in three ordinary wallets whose keys only the server holds:
+Akilii has no smart contracts. Members' money sits in three ordinary wallets whose keys only the server holds:
 
 | Wallet | Key | Holds | Sends |
 |---|---|---|---|

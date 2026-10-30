@@ -52,7 +52,7 @@ function Invite({ circle }: { circle: CircleView }) {
   const full = circle.members.length >= circle.size
 
   async function share() {
-    const text = `Join "${circle.name}", our ${circle.localName} on Nimiq Pay. ${nim(circle.contribution)} ${circle.currency} a round, ${circle.size} of us. Code ${circle.inviteCode}`
+    const text = `Join "${circle.name}", our ${circle.localName} on Akilii in Nimiq Pay. ${nim(circle.contribution)} ${circle.currency} a round, ${circle.size} of us. Code ${circle.inviteCode}`
     if (navigator.share) {
       try {
         await navigator.share({ title: circle.name, text, url: link })
@@ -89,7 +89,7 @@ function Invite({ circle }: { circle: CircleView }) {
           </span>
         </button>
         <p className="mt-2 text-sm text-ink-2" aria-live="polite">
-          {copied === 'code' ? 'Code copied' : copied === 'link' ? 'Invite copied, paste it anywhere' : 'Friends open Circle in Nimiq Pay and enter this code'}
+          {copied === 'code' ? 'Code copied' : copied === 'link' ? 'Invite copied, paste it anywhere' : 'Friends open Akilii in Nimiq Pay and enter this code'}
         </p>
       </section>
 
