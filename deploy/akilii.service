@@ -1,0 +1,28 @@
+# systemd unit for Akilii. Installed by deploy/setup.sh to /etc/systemd/system/akilii.service.
+# One process only: the background worker (rounds, payouts, reminders, staking) runs inside it.
+[Unit]
+Description=Akilii (Next.js)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=circle
+Group=circle
+WorkingDirectory=/srv/akilii
+EnvironmentFile=/etc/circle/env
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+ExecStart=/usr/bin/node node_modules/next/dist/bin/next start
+Restart=always
+RestartSec=5
+
+# Hardening: the app only writes its database.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/circle /srv/akilii/.next
+
+[Install]
+WantedBy=multi-user.target
