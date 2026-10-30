@@ -167,7 +167,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       try {
         return await nimiq.sendBasicTransactionWithData({ recipient: config.poolAddress, value: Math.round(amount * UNIT.NIM), data: memo })
       } catch (err) {
-        throw new Error((await describeWalletError(err)).text)
+        const e = await describeWalletError(err)
+        // Only a refusal or a rejected transaction means nothing was sent. Anything else (Nimiq Pay's
+        // "transaction outcome unknown", a timeout) may still have gone out, so the caller checks the chain.
+        const notSent = e.type === 'PERMISSION_DENIED' || e.type === 'INVALID_TRANSACTION' || e.type === 'UNKNOWN_REQUEST'
+        throw Object.assign(new Error(e.text), { maybeSent: !notSent })
       }
     },
     [nimiq, me, config],
@@ -226,10 +230,19 @@ export function usePayment() {
       setError(null)
       setState('approving')
       try {
-        const hint = await pay({ amount: input.amount, currency: input.currency, memo: input.memo })
+        let hint: string | null
+        let waitMs = 3 * 60_000
+        try {
+          hint = await pay({ amount: input.amount, currency: input.currency, memo: input.memo })
+        } catch (err) {
+          if (!(err as { maybeSent?: boolean }).maybeSent) throw err
+          // No hash to go on: the server finds the payment by its memo and sender instead.
+          hint = null
+          waitMs = 90_000
+        }
         setState('confirming')
         const started = Date.now()
-        while (Date.now() - started < 3 * 60_000) {
+        while (Date.now() - started < waitMs) {
           const result = await api<{ status: string }>(input.confirmUrl, { body: { hint, ...input.extra } })
           if (result.status === 'confirmed') {
             setState('done')
@@ -237,7 +250,11 @@ export function usePayment() {
           }
           await new Promise((r) => setTimeout(r, 3000))
         }
-        throw new Error('Still waiting for the network. It will show up here once it confirms.')
+        throw new Error(
+          hint
+            ? 'Still waiting for the network. It will show up here once it confirms.'
+            : 'We could not confirm the payment yet. If it left your wallet, it will show up here within a few minutes.',
+        )
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
         setState('idle')
