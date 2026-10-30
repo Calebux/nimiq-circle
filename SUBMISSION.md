@@ -11,13 +11,13 @@
 
 Akilii brings the savings circle to Nimiq Pay. A billion people already save this way. Nigerians call it ajo or esusu, Mexicans tanda, Kenyans chama, Caribbean families susu or pardner. Friends chip in the same amount every round, and each round one person takes the whole pot.
 
-Akilii makes it trustless where it used to need trust. Every contribution is a NIM payment from Nimiq Pay to a public pool address, tagged with the circle and round, so anyone can check who paid. Pots go out automatically on the due date. Late payers get reminders, a grace period, and a debt that goes straight to whoever got a short pot when they settle it.
+Akilii makes it trustless where it used to need trust. Every contribution is a payment from Nimiq Pay to a public pool address, tagged with the circle and round, so anyone can check who paid. Pots go out automatically on the due date. Late payers get reminders, a grace period, and a debt that goes straight to whoever got a short pot.
 
-While money waits for its turn it is staked with a Nimiq validator, so later turns earn more, which finally makes being last in the circle fair. A public proof-of-reserves page shows the pool's on-chain balance against what members are owed.
+Save in NIM or USDT. Idle NIM is staked with a Nimiq validator, so later turns earn more, which finally makes being last fair. A public proof-of-reserves page shows the pool's on-chain balance against what members are owed.
 
-Savings goals work the same way for one person: put NIM in a jar for rent or Detty December, and lock it until a date so you can't touch it.
+Savings goals work the same way for one person: a jar for rent or Detty December, locked until a date so you can't touch it.
 
-When it's your turn, keep NIM in Nimiq Pay or cash out to any Nigerian bank in about a minute, at a rate locked for 90 seconds.
+Money moves in local currency. When it's your turn, keep it in Nimiq Pay or cash out to any Nigerian bank in about a minute, at a rate locked for 90 seconds. Next: topping up straight from naira (on-ramp), then payouts in more currencies like cedis, shillings and rand.
 
 Built for Nimiq Pay: sign-in with the wallet's signature, payments with `sendBasicTransactionWithData`, and NIM staking for yield.
 
