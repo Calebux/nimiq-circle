@@ -36,9 +36,13 @@ Then work through the operator checklist in `SECURITY.md` (offline key backup, c
 
 ## 3. Updates
 
+The live server (`5.75.229.204`, ssh alias `hoursback-waba-gateway`) has no GitHub access, so updates go from the laptop. Commit, then:
+
 ```bash
-sudo bash /srv/akilii/deploy/update.sh
+bash deploy/ship.sh
 ```
+
+(`deploy/update.sh` is for a server that can `git pull`.)
 
 ## Operator CLIs on the server
 
