@@ -1,6 +1,6 @@
 # Deploying Akilii
 
-One Ubuntu VPS, nginx in front, systemd running a single Next.js process (the worker lives inside it, so never run two). SQLite database in `/var/lib/circle`, secrets in `/etc/circle/env`.
+One Ubuntu VPS, nginx in front, systemd running a single Next.js process on 127.0.0.1:3300 (the worker lives inside it, so never run two). SQLite database in `/var/lib/circle`, secrets in `/etc/circle/env`.
 
 ## 1. DNS at Namecheap
 
