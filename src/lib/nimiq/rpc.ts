@@ -74,20 +74,30 @@ function isNotFound(err: unknown): boolean {
   return err instanceof RpcError && typeof err.data === 'string' && /not found|no staker/i.test(err.data)
 }
 
-/** Looks in the chain first, then the mempool. Returns null if unknown. */
+/** A mined transaction, or null if it is not in a block yet. */
 export async function getTransaction(hash: string): Promise<ChainTransaction | null> {
   try {
     return await call<ChainTransaction>('getTransactionByHash', [hash])
   } catch (err) {
     if (!isNotFound(err)) throw err
   }
+  return null
+}
+
+/**
+ * Whether the node knows the transaction at all, mined or still in the mempool. The mempool
+ * returns the raw core shape (`{ Extended: { sender, recipient, ... } }`), not a
+ * ChainTransaction, so it only answers yes or no.
+ */
+export async function isKnownTransaction(hash: string): Promise<boolean> {
+  if (await getTransaction(hash)) return true
   try {
-    const tx = await call<ChainTransaction>('getTransactionFromMempool', [hash])
-    return { ...tx, confirmations: 0 }
+    await call<unknown>('getTransactionFromMempool', [hash])
+    return true
   } catch (err) {
     if (!isNotFound(err)) throw err
   }
-  return null
+  return false
 }
 
 /** Most recent mined transactions touching `address`, newest first. */

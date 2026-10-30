@@ -1,6 +1,6 @@
 import 'server-only'
 import { serverConfig } from '@/lib/env'
-import { getBlockNumber, getTransaction, sendRawTransaction } from './rpc'
+import { getBlockNumber, isKnownTransaction, sendRawTransaction } from './rpc'
 
 type NimiqModule = typeof import('@nimiq/core')
 type Built = ReturnType<NimiqModule['TransactionBuilder']['newBasic']>
@@ -23,7 +23,7 @@ async function poolTx(build: (n: NimiqModule, pool: InstanceType<NimiqModule['Ad
     await sendRawTransaction(tx.toHex())
   } catch (err) {
     await new Promise((r) => setTimeout(r, 3_000))
-    if (!(await getTransaction(hash).catch(() => null))) throw err
+    if (!(await isKnownTransaction(hash).catch(() => false))) throw err
   }
   return hash
 }
