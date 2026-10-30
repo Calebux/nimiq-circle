@@ -3,7 +3,7 @@
 import { Ticket } from '@phosphor-icons/react/dist/ssr'
 import Image from 'next/image'
 import Link from 'next/link'
-import { PrimaryButton, Screen, SecondaryButton } from './ui'
+import { Chip, PrimaryButton, Screen, SecondaryButton } from './ui'
 import { useWallet } from './wallet'
 
 export function Splash() {
@@ -38,6 +38,11 @@ export function Welcome({ title, children }: { title?: React.ReactNode; children
               <p className="mt-3 text-[17px] leading-relaxed text-ink-2">
                 Ajo, tanda, susu, chama. Everyone chips in each round and one person takes the whole pot. Or lock savings away for a goal. Waiting money earns.
               </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Chip tone="sun">Cash out in naira</Chip>
+                <Chip tone="lilac">Naira top-ups soon</Chip>
+                <Chip tone="lilac">More currencies soon</Chip>
+              </div>
             </>
           )}
         </div>
