@@ -61,12 +61,12 @@ export async function payerOf(tx: ChainTransaction): Promise<string> {
 }
 
 async function findTx(memo: string, hint: string | null): Promise<ChainTransaction | null> {
-  // check 1 showed Nimiq Pay returns the tx hash; the memo scan covers anything else.
-  if (hint && /^[0-9a-f]{64}$/i.test(hint)) {
-    const tx = await getTransaction(hint.toLowerCase())
-    if (tx) return tx
-  }
-  return (await poolHistory()).find((tx) => decodeData(tx.recipientData) === memo) ?? null
+  // check 1 showed Nimiq Pay returns the tx hash; the memo scan covers anything else. With a
+  // hash, wait for that exact transaction: goal top-ups share one memo, so a scan would find an
+  // earlier top-up and report this one confirmed before it lands.
+  if (hint && /^[0-9a-f]{64}$/i.test(hint)) return getTransaction(hint.toLowerCase())
+  const known = new Set((await all<{ tx_hash: string }>('SELECT tx_hash FROM deposits WHERE memo = ?', [memo])).map((r) => r.tx_hash))
+  return (await poolHistory()).find((tx) => decodeData(tx.recipientData) === memo && !known.has(tx.hash)) ?? null
 }
 
 let history: { at: number; txs: Promise<ChainTransaction[]> } | null = null
