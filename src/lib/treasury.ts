@@ -3,8 +3,10 @@ import type { User } from './auth'
 import { UNIT, type Currency } from './currency'
 import { newId, one, run } from './db'
 import { ApiError } from './errors'
+import { serverConfig } from './env'
 import { sameAddress } from './nimiq/address'
-import { offrampProvider } from './offramp'
+import { sendFromPool } from './nimiq/pool-signer'
+import { offrampProvider, type DepositProvider } from './offramp'
 import { nimUsd } from './pricing'
 
 /**
@@ -96,37 +98,42 @@ function publicQuote(q: QuoteRow, unavailable: string | null) {
 export type PublicQuote = ReturnType<typeof publicQuote>
 
 /**
- * Lock a price for cashing out `amount` (smallest unit): NIM at market NIM/USD minus spread, USDT
- * one to one; then the provider's USDT → NGN.
+ * Lock a price for cashing out `amount` (smallest unit). Float providers: NIM at market NIM/USD
+ * minus spread, USDT one to one, then the provider's USDT → NGN. Deposit providers quote NIM → NGN.
  */
 export async function createQuote(user: User, amount: number, currency: Currency) {
   if (!Number.isInteger(amount) || amount <= 0) throw new ApiError('Nothing to cash out')
   const s = settings()
+  const provider = offrampProvider()
+  const base = { id: newId(10), address: user.address, nim: amount, currency, used_at: null, expires_at: Date.now() + s.quoteTtlMs, created_at: Date.now() }
+
+  if (provider.model === 'deposit') {
+    // The provider takes the NIM itself: no USDT leg, no spread of ours.
+    if (currency !== 'NIM') {
+      const row: QuoteRow = { ...base, usdt: 0, ngn: 0, nim_usd: 0, usdt_ngn: 0, fee_ngn: 0, spread_bps: 0 }
+      return publicQuote(row, 'Bank cash-out for USDT savings is coming soon. Send it to Nimiq Pay for now.')
+    }
+    const q = await provider.quoteNim({ luna: amount })
+    const row: QuoteRow = { ...base, usdt: 0, ngn: q.ngnOut, nim_usd: 0, usdt_ngn: q.rate, fee_ngn: q.feeNgn, spread_bps: 0 }
+    await saveQuote(row)
+    return publicQuote(row, q.unavailable)
+  }
+
   const price = currency === 'USDT' ? 1 : await nimUsd()
   const spread = currency === 'USDT' ? s.usdtSpreadBps : s.spreadBps
   const usdtMicro = Math.floor((amount / UNIT[currency]) * price * (1 - spread / 10_000) * USDT)
-  const provider = await offrampProvider().quote({ usdtMicro })
-  const row: QuoteRow = {
-    id: newId(10),
-    address: user.address,
-    nim: amount,
-    currency,
-    usdt: usdtMicro,
-    ngn: provider.ngnOut,
-    nim_usd: price,
-    usdt_ngn: provider.rate,
-    fee_ngn: provider.feeNgn,
-    spread_bps: spread,
-    expires_at: Date.now() + s.quoteTtlMs,
-    used_at: null,
-    created_at: Date.now(),
-  }
+  const quoted = await provider.quote({ usdtMicro })
+  const row: QuoteRow = { ...base, usdt: usdtMicro, ngn: quoted.ngnOut, nim_usd: price, usdt_ngn: quoted.rate, fee_ngn: quoted.feeNgn, spread_bps: spread }
+  await saveQuote(row)
+  return publicQuote(row, await blocker(usdtMicro, quoted.ngnOut))
+}
+
+async function saveQuote(row: QuoteRow) {
   await run(
     `INSERT INTO quotes (id, address, nim, currency, usdt, ngn, nim_usd, usdt_ngn, fee_ngn, spread_bps, expires_at, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [row.id, row.address, row.nim, row.currency, row.usdt, row.ngn, row.nim_usd, row.usdt_ngn, row.fee_ngn, row.spread_bps, row.expires_at, row.created_at],
   )
-  return publicQuote(row, await blocker(usdtMicro, provider.ngnOut))
 }
 
 /**
@@ -147,14 +154,21 @@ export async function executeCashout(input: {
   // Yield can tick between quote and claim; allow a hair of drift, never more.
   if (Math.abs(q.nim - input.amount) > Math.max(UNIT[q.currency], q.nim * 0.005)) throw new ApiError('The amount changed. Please check the new rate.')
   if (q.expires_at < Date.now()) throw new ApiError('That rate expired. Here is a fresh one.', 409)
-  const reason = await blocker(q.usdt, q.ngn)
-  if (reason) throw new ApiError(reason, 409)
+  const provider = offrampProvider()
+  if (provider.model === 'float') {
+    const reason = await blocker(q.usdt, q.ngn)
+    if (reason) throw new ApiError(reason, 409)
+  } else if (q.currency !== 'NIM') {
+    throw new ApiError('Bank cash-out for USDT savings is coming soon. Send it to Nimiq Pay for now.')
+  }
 
   // Spend the quote once, even if two requests race.
   const claimed = await run('UPDATE quotes SET used_at = ? WHERE id = ? AND used_at IS NULL', [Date.now(), q.id])
   if (claimed.rowsAffected === 0) throw new ApiError('That rate was already used')
 
-  const payout = await offrampProvider().createPayout({ usdtMicro: q.usdt, ngn: q.ngn, ...input.bank, reference: input.reference })
+  if (provider.model === 'deposit') return depositCashout(provider, q, input)
+
+  const payout = await provider.createPayout({ usdtMicro: q.usdt, ngn: q.ngn, ...input.bank, reference: input.reference })
   await run('INSERT INTO treasury_ledger (id, kind, usdt, nim, ref, note, simulated, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
     newId(10),
     'cashout',
@@ -166,5 +180,50 @@ export async function executeCashout(input: {
     input.user.dev ? 1 : 0,
     Date.now(),
   ])
-  return { providerId: payout.id, ngn: q.ngn }
+  return { providerId: payout.id, ngn: q.ngn, txHash: null }
+}
+
+/**
+ * Deposit providers: open an order, send it the member's NIM from the pool, report the hash.
+ * The treasury takes nothing on; failed payouts are refunded to the pool.
+ */
+async function depositCashout(
+  provider: DepositProvider,
+  q: QuoteRow,
+  input: { user: User; amount: number; bank: { bankCode: string; accountNumber: string; accountName: string }; reference: string },
+) {
+  const simulate = input.user.dev || provider.sandbox
+  if (input.user.dev && !provider.sandbox) throw new ApiError('Test wallets cannot cash out for real')
+  const pool = serverConfig().nim.poolAddress
+  if (!pool) throw new Error('POOL_ADDRESS is not configured')
+
+  let order
+  let txHash: string
+  try {
+    order = await provider.createOfframp({ luna: input.amount, bankCode: input.bank.bankCode, accountNumber: input.bank.accountNumber, reference: input.reference, refundAddress: pool })
+    if (order.luna !== input.amount) throw new Error(`${provider.name} asked for ${order.luna} luna, not ${input.amount}`)
+    if (simulate) {
+      await provider.simulateDeposit(order.id, input.reference)
+      txHash = `mock-${input.reference}`
+    } else {
+      txHash = await sendFromPool(order.address, order.luna, order.memo)
+    }
+  } catch (err) {
+    // Nothing left the pool: give the quote back so the member can retry with it.
+    await run('UPDATE quotes SET used_at = NULL WHERE id = ?', [q.id])
+    throw new ApiError(err instanceof Error ? err.message : 'Cash-out failed', 502)
+  }
+  if (!simulate) await provider.reportDeposit(order.id, txHash, input.reference).catch((err) => console.error('report deposit', order.id, err))
+
+  await run('INSERT INTO treasury_ledger (id, kind, usdt, nim, ref, note, simulated, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
+    newId(10),
+    'cashout',
+    0,
+    0,
+    input.reference,
+    `₦${order.ngn} to ${input.bank.accountName} via ${provider.name}, ${input.amount / UNIT.NIM} NIM sent to ${order.address}`,
+    simulate ? 1 : 0,
+    Date.now(),
+  ])
+  return { providerId: order.id, ngn: order.ngn, txHash }
 }

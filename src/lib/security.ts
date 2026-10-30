@@ -60,5 +60,6 @@ export function checkProductionConfig() {
   if (process.env.INSTANT_PAYOUTS === '1') problems.push('INSTANT_PAYOUTS must be off')
   const keys = ['POOL_PRIVATE_KEY', 'EVM_POOL_PRIVATE_KEY', 'GAS_PRIVATE_KEY'].map((k) => process.env[k]?.trim()).filter(Boolean)
   if (new Set(keys).size !== keys.length) problems.push('POOL_PRIVATE_KEY, EVM_POOL_PRIVATE_KEY and GAS_PRIVATE_KEY must all be different')
+  if (process.env.OFFRAMP_PROVIDER === 'khalkos' && !/^kp_(live|test)_/.test(process.env.KHALKOS_SECRET_KEY?.trim() ?? '')) problems.push('KHALKOS_SECRET_KEY must be a kp_live_ or kp_test_ key')
   if (problems.length) throw new Error(`Unsafe production config:\n- ${problems.join('\n- ')}`)
 }

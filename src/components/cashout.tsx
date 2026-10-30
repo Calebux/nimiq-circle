@@ -217,7 +217,7 @@ export function CashOutSheet({
             <Line label="You send">
               {nim(amount, 2)} {currency}
             </Line>
-            {currency === 'NIM' && <Line label="Changed to">{quote ? `${quote.usdt.toFixed(2)} USDT` : '…'}</Line>}
+            {currency === 'NIM' && quote?.usdt !== 0 && <Line label="Changed to">{quote ? `${quote.usdt.toFixed(2)} USDT` : '…'}</Line>}
             <Line label="Rate">{quote ? `1 ${currency} = ₦${quote.rate.toFixed(currency === 'NIM' ? 3 : 2)}` : '…'}</Line>
             <Line label="Bank fee">{quote ? naira(quote.feeNgn) : '…'}</Line>
             <div className="mt-4 flex items-baseline justify-between border-t border-line pt-4">

@@ -1,4 +1,4 @@
-import type { CreatePayoutInput, OfframpPayout, OfframpProvider } from './types'
+import type { CreatePayoutInput, FloatProvider, OfframpPayout } from './types'
 
 const payouts = new Map<string, OfframpPayout>()
 
@@ -9,12 +9,17 @@ const MIN_FEE_NGN = 50
 const SETTLE_MS = 8_000
 
 /** In-memory provider with the shape of a real USDT payout API. Payouts settle after a few seconds. */
-export const mockProvider: OfframpProvider = {
+export const mockProvider: FloatProvider = {
   name: 'mock',
+  model: 'float',
 
   async resolveAccount({ accountNumber }) {
     if (!/^\d{10}$/.test(accountNumber)) throw new Error('Account numbers are 10 digits')
     return { accountName: 'ADA OBI (TEST)' }
+  },
+
+  async rates() {
+    return { ngnPerNim: null, ngnPerUsdt: MOCK_USDT_NGN }
   },
 
   async quote({ usdtMicro }) {

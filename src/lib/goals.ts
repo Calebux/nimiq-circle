@@ -2,7 +2,7 @@ import 'server-only'
 import type { User } from './auth'
 import { LIMITS, MIN_DEPOSIT, UNIT, type Currency } from './currency'
 import { all, newId, one, run } from './db'
-import { bankLanded, deliver, type BankDetails, type Method } from './delivery'
+import { bankStatus, deliver, type BankDetails, type Method } from './delivery'
 import { goalMemo, isSimulated, memoFor, reconcile, verifyDeposit, type DepositResult } from './deposits'
 import { ApiError } from './errors'
 import { sameAddress } from './nimiq/address'
@@ -130,9 +130,17 @@ export async function withdrawGoal(user: User, goalId: string, method: Method, b
 }
 
 async function settle(w: WithdrawalRow) {
-  if (w.status === 'cashing' && w.provider_id && (await bankLanded(w.provider_id))) {
+  if (w.status !== 'cashing' || !w.provider_id) return w
+  const status = await bankStatus(w.provider_id)
+  if (status === 'paid') {
     await run("UPDATE withdrawals SET status = 'cashed' WHERE id = ?", [w.id])
     return { ...w, status: 'cashed' as const }
+  }
+  if (status === 'failed') {
+    // The provider refunded the pool: drop the withdrawal so the money is back in the goal.
+    await run('DELETE FROM withdrawals WHERE id = ?', [w.id])
+    await run("UPDATE goals SET status = 'open' WHERE id = ?", [w.goal_id])
+    console.error('bank cash-out refunded', w.id)
   }
   return w
 }

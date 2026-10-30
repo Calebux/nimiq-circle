@@ -2,7 +2,7 @@ import 'server-only'
 import { displayName, usersByAddress, type User } from './auth'
 import { LIMITS, UNIT, type Currency } from './currency'
 import { all, newId, one, run } from './db'
-import { bankLanded, deliver, type BankDetails, type Method } from './delivery'
+import { bankStatus, deliver, type BankDetails, type Method } from './delivery'
 import { circleMemo, isSimulated, memoFor, reconcile, verifyDeposit, type DepositResult } from './deposits'
 import { serverConfig } from './env'
 import { ApiError } from './errors'
@@ -445,9 +445,17 @@ export const activeCircleIds = async () => (await all<{ id: string }>("SELECT id
 const currencyOf = async (circleId: string) => (await one<{ currency: Currency }>('SELECT currency FROM circles WHERE id = ?', [circleId]))?.currency ?? 'NIM'
 
 async function settle(payout: PayoutRow) {
-  if (payout.status === 'cashing' && payout.provider_id && (await bankLanded(payout.provider_id))) {
+  if (payout.status !== 'cashing' || !payout.provider_id) return payout
+  const status = await bankStatus(payout.provider_id)
+  if (status === 'paid') {
     await run("UPDATE payouts SET status = 'cashed', settled_at = ? WHERE id = ?", [Date.now(), payout.id])
     return { ...payout, status: 'cashed' as const, settled_at: Date.now() }
+  }
+  if (status === 'failed') {
+    // The provider refunded the pool: the pot is claimable again.
+    await run("UPDATE payouts SET status = 'claimable', method = NULL, tx_hash = NULL, bank = NULL, ngn = NULL, provider_id = NULL WHERE id = ?", [payout.id])
+    console.error('bank cash-out refunded', payout.id)
+    return { ...payout, status: 'claimable' as const, method: null, tx_hash: null, bank: null, ngn: null, provider_id: null }
   }
   return payout
 }

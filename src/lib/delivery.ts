@@ -47,8 +47,8 @@ async function usdtDestination(to: User, evmAddress?: string) {
 
 /**
  * Move `amount` (smallest unit of `currency`) out of the pool to its owner: to their Nimiq Pay
- * wallet (NIM on Nimiq, USDT on Polygon), or as naira to a bank. Bank cash-outs never move
- * money on chain: the treasury takes it in place and the provider pays from our USDT float.
+ * wallet (NIM on Nimiq, USDT on Polygon), or as naira to a bank: a float provider pays from our
+ * USDT and the treasury keeps the NIM; a deposit provider is sent the NIM (src/lib/treasury.ts).
  */
 export async function deliver(input: {
   to: User
@@ -72,23 +72,26 @@ export async function deliver(input: {
 
   const bank = input.bank
   if (!bank) throw new ApiError('Choose a bank account')
-  const { providerId, ngn } = await executeCashout({ user: to, quoteId: bank.quoteId, amount, currency, bank, reference })
+  const { providerId, ngn, txHash } = await executeCashout({ user: to, quoteId: bank.quoteId, amount, currency, bank, reference })
   return {
     status: 'cashing',
-    // Dev wallets: mark the row simulated so it stays out of the real pool accounting.
-    txHash: to.dev ? `mock-${reference}` : null,
+    // Dev wallets: mark the row simulated so it stays out of the real pool accounting. Deposit
+    // providers: the pool's send to the provider.
+    txHash: to.dev ? `mock-${reference}` : txHash,
     ngn,
     providerId,
     bank: `${bank.bankName} ••${bank.accountNumber.slice(-4)} · ${bank.accountName}`,
   }
 }
 
-/** Has the bank transfer landed? */
-export async function bankLanded(providerId: string): Promise<boolean> {
+/** Where a bank transfer is: still going, landed, or refunded to the pool. */
+export async function bankStatus(providerId: string): Promise<'processing' | 'paid' | 'failed'> {
   try {
-    return (await offrampProvider().getPayout(providerId)).status === 'paid'
-  } catch {
+    return (await offrampProvider().getPayout(providerId)).status
+  } catch (err) {
     // The mock provider forgets payouts on restart; treat those as settled.
-    return true
+    if (offrampProvider().name === 'mock') return 'paid'
+    console.error('payout status', providerId, err)
+    return 'processing'
   }
 }

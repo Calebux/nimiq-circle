@@ -10,9 +10,9 @@ export async function GET() {
   let ngnPerNim: number | null = null
   let ngnPerUsdt: number | null = null
   try {
-    const provider = await offrampProvider().quote({ usdtMicro: 1_000_000 })
-    ngnPerUsdt = provider.rate
-    ngnPerNim = (await nimUsd()) * provider.rate
+    const rates = await offrampProvider().rates()
+    ngnPerUsdt = rates.ngnPerUsdt
+    ngnPerNim = rates.ngnPerNim ?? (rates.ngnPerUsdt ? (await nimUsd()) * rates.ngnPerUsdt : null)
   } catch {
     // Estimates fall back to the client constant; cash-out still gets a real quote.
   }
