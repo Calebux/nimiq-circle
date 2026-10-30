@@ -11,9 +11,7 @@ Group=circle
 WorkingDirectory=/srv/akilii
 EnvironmentFile=/etc/circle/env
 Environment=NODE_ENV=production
-Environment=PORT=3300
-Environment=HOSTNAME=127.0.0.1
-ExecStart=/usr/bin/node node_modules/next/dist/bin/next start
+ExecStart=/usr/bin/node node_modules/next/dist/bin/next start -H 127.0.0.1 -p 3300
 Restart=always
 RestartSec=5
 
