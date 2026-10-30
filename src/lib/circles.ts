@@ -658,6 +658,11 @@ export async function myCircles(user: User) {
 }
 export type CircleSummary = Awaited<ReturnType<typeof myCircles>>[number]
 
+/** Webhook: settle the bank cash-out for this provider order, if any. */
+export async function settlePayoutByProvider(providerId: string) {
+  for (const p of await all<PayoutRow>("SELECT * FROM payouts WHERE status = 'cashing' AND provider_id = ?", [providerId])) await settle(p)
+}
+
 /** Worker: mark bank cash-outs that have landed. */
 export async function settleCashingPayouts() {
   for (const p of await all<PayoutRow>("SELECT * FROM payouts WHERE status = 'cashing'")) await settle(p)

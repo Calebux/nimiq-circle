@@ -208,6 +208,11 @@ export async function myGoals(user: User) {
 }
 export type GoalSummary = Awaited<ReturnType<typeof myGoals>>[number]
 
+/** Webhook: settle the bank withdrawal for this provider order, if any. */
+export async function settleWithdrawalByProvider(providerId: string) {
+  for (const w of await all<WithdrawalRow>("SELECT * FROM withdrawals WHERE status = 'cashing' AND provider_id = ?", [providerId])) await settle(w)
+}
+
 /** Worker: credit unreported goal deposits and mark bank withdrawals that have landed. */
 export async function syncGoals() {
   for (const goal of await all<GoalRow>("SELECT * FROM goals WHERE status = 'open'")) await reconcileGoal(goal)
