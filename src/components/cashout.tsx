@@ -17,9 +17,9 @@ export interface BankChoice {
   quoteId: string
 }
 
-function BankPicker({ onPick }: { onPick: (bank: Bank) => void }) {
+function BankPicker({ banks, onPick }: { banks: Bank[]; onPick: (bank: Bank) => void }) {
   const [query, setQuery] = useState('')
-  const results = BANKS.filter((b) => `${b.name} ${b.short}`.toLowerCase().includes(query.trim().toLowerCase()))
+  const results = banks.filter((b) => `${b.name} ${b.short}`.toLowerCase().includes(query.trim().toLowerCase()))
   return (
     <div>
       <div className="flex h-12 items-center gap-2 rounded-full bg-white px-4 shadow-soft focus-within:ring-2 focus-within:ring-coral">
@@ -100,6 +100,7 @@ export function CashOutSheet({
   onConfirm: (bank: BankChoice) => Promise<void>
 }) {
   const [picking, setPicking] = useState(false)
+  const [banks, setBanks] = useState<Bank[]>(BANKS)
   const [bank, setBank] = useState<Bank>(BANKS[0])
   const [account, setAccount] = useState('')
   const [resolved, setResolved] = useState<{ key: string; name: string } | null>(null)
@@ -124,6 +125,23 @@ export function CashOutSheet({
       cancelled = true
     }
   }, [bank, account])
+
+  // The provider's list, so nobody picks a bank it cannot pay.
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    api<{ banks: Bank[] }>('/api/offramp', { body: { action: 'banks' } }).then(
+      (r) => {
+        if (cancelled || r.banks.length === 0) return
+        setBanks(r.banks)
+        setBank((b) => r.banks.find((x) => x.code === b.code) ?? r.banks[0])
+      },
+      () => {},
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [open])
 
   // Lock a rate when the sheet opens, and again whenever the last one runs out.
   useEffect(() => {
@@ -170,6 +188,7 @@ export function CashOutSheet({
     >
       {picking ? (
         <BankPicker
+          banks={banks}
           onPick={(b) => {
             setBank(b)
             setError(null)

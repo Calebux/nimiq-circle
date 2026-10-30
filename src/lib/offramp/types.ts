@@ -6,6 +6,8 @@
 interface Common {
   readonly name: string
   resolveAccount(input: { bankCode: string; accountNumber: string }): Promise<{ accountName: string }>
+  /** Banks it can pay, popular first. Null: no list, use ours (src/lib/constants.ts). */
+  banks(): Promise<{ code: string; name: string }[] | null>
   /** NGN per unit, for "≈ ₦" estimates. Null when the provider has no rate for that currency. */
   rates(): Promise<{ ngnPerNim: number | null; ngnPerUsdt: number | null }>
   getPayout(id: string): Promise<OfframpPayout>

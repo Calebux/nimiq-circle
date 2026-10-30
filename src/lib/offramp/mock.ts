@@ -18,6 +18,10 @@ export const mockProvider: FloatProvider = {
     return { accountName: 'ADA OBI (TEST)' }
   },
 
+  async banks() {
+    return null
+  },
+
   async rates() {
     return { ngnPerNim: null, ngnPerUsdt: MOCK_USDT_NGN }
   },

@@ -73,6 +73,8 @@ interface Offramp {
   createdAt: string
 }
 
+let bankCache: { at: number; banks: Promise<{ code: string; name: string }[]> } | null = null
+
 let rateCache: { at: number; rate: Promise<Rate> } | null = null
 function currentRate(): Promise<Rate> {
   if (!rateCache || Date.now() - rateCache.at > 30_000) {
@@ -99,6 +101,15 @@ export const khalkosProvider: DepositProvider = {
       if (err instanceof KhalkosError && err.status < 500) throw new Error('We could not find that account. Check the number and bank.')
       throw err
     }
+  },
+
+  async banks() {
+    if (!bankCache || Date.now() - bankCache.at > 3_600_000) {
+      const banks = call<{ data: { code: string; name: string }[] }>('GET', '/banks').then((r) => r.data.map(({ code, name }) => ({ code, name })))
+      banks.catch(() => (bankCache = null))
+      bankCache = { at: Date.now(), banks }
+    }
+    return bankCache.banks
   },
 
   async rates() {
