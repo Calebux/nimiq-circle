@@ -16,6 +16,8 @@ export interface User {
   name: string | null
   avatar: number
   dev: number
+  /** Practice-circle bot (src/lib/circles.ts). Only usersByAddress reads it. */
+  bot?: number
 }
 
 // --- Users -------------------------------------------------------------------
@@ -38,7 +40,7 @@ export async function ensureUser(address: string, dev = false): Promise<User> {
 
 export async function usersByAddress(addresses: string[]): Promise<Map<string, User>> {
   if (addresses.length === 0) return new Map()
-  const rows = await all<User>(`SELECT address, name, avatar, dev FROM users WHERE address IN (${addresses.map(() => '?').join(',')})`, addresses)
+  const rows = await all<User>(`SELECT address, name, avatar, dev, bot FROM users WHERE address IN (${addresses.map(() => '?').join(',')})`, addresses)
   return new Map(rows.map((u) => [u.address, u]))
 }
 

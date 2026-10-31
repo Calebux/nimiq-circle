@@ -226,14 +226,15 @@ export function usePayment() {
   const [error, setError] = useState<string | null>(null)
 
   const run = useCallback(
-    async (input: { amount: number; currency: Currency; memo: string; confirmUrl: string; extra?: Record<string, unknown> }) => {
+    async (input: { amount: number; currency: Currency; memo: string; confirmUrl: string; extra?: Record<string, unknown>; practice?: boolean }) => {
       setError(null)
       setState('approving')
       try {
         let hint: string | null
         let waitMs = 3 * 60_000
         try {
-          hint = await pay({ amount: input.amount, currency: input.currency, memo: input.memo })
+          // Practice circles: no wallet, the server records it as simulated.
+          hint = input.practice ? 'practice' : await pay({ amount: input.amount, currency: input.currency, memo: input.memo })
         } catch (err) {
           if (!(err as { maybeSent?: boolean }).maybeSent) throw err
           // No hash to go on: the server finds the payment by its memo and sender instead.

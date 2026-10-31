@@ -136,6 +136,25 @@ async function saveQuote(row: QuoteRow) {
   )
 }
 
+/** The member's own, unexpired quote for this amount, or a reason to fetch a fresh one. */
+async function validQuote(input: { user: User; quoteId: string; amount: number; currency: Currency }) {
+  const q = await one<QuoteRow>('SELECT * FROM quotes WHERE id = ?', [input.quoteId])
+  if (!q || !sameAddress(q.address, input.user.address)) throw new ApiError('That rate is not yours. Please try again.')
+  if (q.currency !== input.currency) throw new ApiError('The amount changed. Please check the new rate.')
+  // Yield can tick between quote and claim; allow a hair of drift, never more.
+  if (Math.abs(q.nim - input.amount) > Math.max(UNIT[q.currency], q.nim * 0.005)) throw new ApiError('The amount changed. Please check the new rate.')
+  if (q.expires_at < Date.now()) throw new ApiError('That rate expired. Here is a fresh one.', 409)
+  return q
+}
+
+/** Practice cash-outs: the quote is checked and used up like a real one, but nothing is paid. */
+export async function spendPracticeQuote(input: { user: User; quoteId: string; amount: number; currency: Currency }) {
+  const q = await validQuote(input)
+  const claimed = await run('UPDATE quotes SET used_at = ? WHERE id = ? AND used_at IS NULL', [Date.now(), q.id])
+  if (claimed.rowsAffected === 0) throw new ApiError('That rate was already used')
+  return q.ngn
+}
+
 /**
  * Spend a quote: the provider pays the bank from our float, and the treasury books the NIM it
  * bought. Throws (and moves nothing) if the quote is stale, someone else's, or the float is short.
@@ -148,12 +167,7 @@ export async function executeCashout(input: {
   bank: { bankCode: string; accountNumber: string; accountName: string }
   reference: string
 }) {
-  const q = await one<QuoteRow>('SELECT * FROM quotes WHERE id = ?', [input.quoteId])
-  if (!q || !sameAddress(q.address, input.user.address)) throw new ApiError('That rate is not yours. Please try again.')
-  if (q.currency !== input.currency) throw new ApiError('The amount changed. Please check the new rate.')
-  // Yield can tick between quote and claim; allow a hair of drift, never more.
-  if (Math.abs(q.nim - input.amount) > Math.max(UNIT[q.currency], q.nim * 0.005)) throw new ApiError('The amount changed. Please check the new rate.')
-  if (q.expires_at < Date.now()) throw new ApiError('That rate expired. Here is a fresh one.', 409)
+  const q = await validQuote(input)
   const provider = offrampProvider()
   if (provider.model === 'float') {
     const reason = await blocker(q.usdt, q.ngn)

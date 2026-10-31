@@ -189,6 +189,9 @@ const COLUMNS: [string, string, string][] = [
   ['quotes', 'currency', "TEXT NOT NULL DEFAULT 'NIM'"],
   // The Polygon address a member last paid USDT from; USDT payouts go back there.
   ['users', 'evm_address', 'TEXT'],
+  // Practice circles: you plus two bot members, every payment simulated (src/lib/circles.ts).
+  ['circles', 'practice', 'INTEGER NOT NULL DEFAULT 0'],
+  ['users', 'bot', 'INTEGER NOT NULL DEFAULT 0'],
 ]
 
 async function addColumns(db: Client) {

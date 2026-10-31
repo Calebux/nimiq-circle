@@ -84,7 +84,7 @@ function Celebrate({ circle, payout, onClaimed }: { circle: CircleView; payout: 
         </SecondaryButton>
       </BottomBar>
 
-      <CashOutSheet open={sheet} onOpenChange={setSheet} amount={total} currency={payout.currency} onConfirm={cashOut} />
+      <CashOutSheet open={sheet} onOpenChange={setSheet} amount={total} currency={payout.currency} onConfirm={cashOut} practice={circle.practice} />
     </Screen>
   )
 }

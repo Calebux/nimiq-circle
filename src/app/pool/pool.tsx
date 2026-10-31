@@ -1,7 +1,8 @@
 'use client'
 
-import { ArrowSquareOut, CheckCircle, Copy, Plant } from '@phosphor-icons/react/dist/ssr'
+import { ArrowRight, ArrowSquareOut, CheckCircle, Copy, Plant } from '@phosphor-icons/react/dist/ssr'
 import Image from 'next/image'
+import Link from 'next/link'
 import { useState } from 'react'
 import { Splash } from '@/components/gate'
 import { BackLink, Screen, nim } from '@/components/ui'
@@ -145,6 +146,10 @@ export function PoolScreen() {
           {data.operator > 0 && ` It also holds ${nim(data.operator)} NIM of the operator’s own money, which is never counted as members’ earnings.`}
         </p>
       </section>
+
+      <Link href="/stats" className="press mt-4 flex items-center justify-between rounded-card bg-white p-4 font-bold shadow-soft">
+        Akilii in numbers <ArrowRight size={18} weight="bold" />
+      </Link>
 
       {data.actions.length > 0 && (
         <section className="mt-4 rounded-card bg-white p-5 shadow-soft">

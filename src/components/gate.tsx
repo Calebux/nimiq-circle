@@ -36,7 +36,7 @@ export function Welcome({ title, children }: { title?: React.ReactNode; children
                 )}
               </h1>
               <p className="mt-3 text-[17px] leading-relaxed text-ink-2">
-                Ajo, tanda, susu, chama. Everyone chips in each round and one person takes the whole pot. Or lock savings away for a goal. Waiting money earns.
+                Ajo, tanda, susu, chama with friends you trust: everyone chips in each round and one person takes the whole pot. Saving alone? Lock it away in a goal. Waiting money earns.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 <Chip tone="sun">Cash out in naira</Chip>
@@ -65,6 +65,10 @@ export function Welcome({ title, children }: { title?: React.ReactNode; children
             {' · '}
             <Link href="/pool" className="underline underline-offset-2">
               The pool on chain
+            </Link>
+            {' · '}
+            <Link href="/stats" className="underline underline-offset-2">
+              In numbers
             </Link>
           </p>
         </div>

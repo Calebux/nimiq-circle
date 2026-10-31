@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { Splash } from '@/components/gate'
+import { Record } from '@/components/record'
 import { Avatar, BackLink, BottomBar, PrimaryButton, Screen, nim } from '@/components/ui'
 import { Ngn, api, useApi, useWallet } from '@/components/wallet'
 import type { CirclePreview } from '@/lib/circles'
@@ -69,22 +70,28 @@ export function JoinScreen({ code }: { code: string }) {
 
       <section className="mt-4 rounded-card bg-white p-5 shadow-soft">
         <h2 className="font-display text-xl font-bold tracking-tight">Who&apos;s in</h2>
-        <ul className="mt-3 flex flex-wrap gap-3">
+        <ul className="mt-3 flex flex-col gap-3">
           {circle.members.map((m) => (
-            <li key={m.turn} className="flex flex-col items-center gap-1">
-              <Avatar avatar={m.avatar} size={48} />
-              <span className="text-xs font-semibold">{m.name}</span>
+            <li key={m.turn} className="flex items-center gap-3">
+              <Avatar avatar={m.avatar} size={44} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-semibold">{m.name}</p>
+                <Record member={m} />
+              </div>
             </li>
           ))}
           {Array.from({ length: Math.max(0, circle.size - circle.members.length) }, (_, i) => (
-            <li key={`e${i}`} className="flex flex-col items-center gap-1">
-              <span className="grid size-12 place-items-center rounded-full border-2 border-dashed border-line text-ink-2/60">
+            <li key={`e${i}`} className="flex items-center gap-3">
+              <span className="grid size-11 place-items-center rounded-full border-2 border-dashed border-line text-ink-2/60">
                 <Plus size={16} weight="bold" />
               </span>
-              <span className="text-xs text-ink-2/70">Open</span>
+              <span className="text-ink-2/70">Open seat</span>
             </li>
           ))}
         </ul>
+        <p className="mt-4 rounded-[var(--radius-inner)] bg-blush px-4 py-3 text-sm text-ink-2">
+          Only join circles with people you know. Want to save on your own instead? Make a savings goal.
+        </p>
       </section>
 
       {(joinError || wallet.error) && <p className="mt-4 rounded-[var(--radius-inner)] bg-coral-soft px-4 py-3 text-sm text-coral-ink">{joinError ?? wallet.error}</p>}

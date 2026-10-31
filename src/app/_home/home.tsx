@@ -1,6 +1,6 @@
 'use client'
 
-import { BellRinging, CalendarDots, Gift, Hourglass, LockSimple, Plus, Ticket, UsersThree, X } from '@phosphor-icons/react/dist/ssr'
+import { BellRinging, CalendarDots, Gift, Hourglass, LockSimple, Plus, Sparkle, Ticket, UsersThree, X } from '@phosphor-icons/react/dist/ssr'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -181,7 +181,7 @@ function CircleCard({ c }: { c: CircleSummary }) {
       <div className={`rounded-[calc(var(--radius-card)-6px)] p-4 ${filling ? 'bg-lilac-soft' : done ? 'bg-mint-soft' : 'bg-coral-soft'}`}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className={`text-sm font-semibold ${filling ? 'text-lilac-ink' : done ? 'text-mint-ink' : 'text-coral-ink'}`}>{c.localName}</p>
+            <p className={`text-sm font-semibold ${filling ? 'text-lilac-ink' : done ? 'text-mint-ink' : 'text-coral-ink'}`}>{c.practice ? 'Practice · no real money' : c.localName}</p>
             <p className="truncate font-display text-2xl font-extrabold leading-tight tracking-tight">{c.name}</p>
           </div>
           <AvatarStack avatars={c.avatars} size={32} />
@@ -252,17 +252,30 @@ function StartCards({ first }: { first: boolean }) {
   const router = useRouter()
   const [joining, setJoining] = useState(false)
   const [code, setCode] = useState('')
+  const [practicing, setPracticing] = useState(false)
+  async function practice() {
+    setPracticing(true)
+    try {
+      const { id } = await api<{ id: string }>('/api/circles/practice', { method: 'POST' })
+      router.push(`/c/${id}`)
+    } catch {
+      setPracticing(false)
+    }
+  }
   return (
     <>
       <section className="overflow-hidden rounded-card bg-white shadow-soft">
         <Image src="/art/friends.webp" alt="" width={1200} height={714} className="mx-auto -mb-2 mt-4 w-[82%]" />
         <div className="p-5 pt-3">
           <h2 className="font-display text-2xl font-extrabold tracking-tight">{first ? 'Save with your people' : 'Start another circle'}</h2>
-          <p className="mt-1 text-[15px] text-ink-2">Everyone chips in each round. One person takes the whole pot, then the next.</p>
+          <p className="mt-1 text-[15px] text-ink-2">A circle is for friends and family you trust. Everyone chips in each round and one person takes the whole pot, then the next.</p>
           <div className="mt-4 flex flex-col gap-2">
             <PrimaryButton href="/new">New circle</PrimaryButton>
             <button onClick={() => setJoining(true)} className="press flex h-12 items-center justify-center gap-2 rounded-full bg-blush font-bold">
               <Ticket size={18} weight="bold" /> Join with a code
+            </button>
+            <button onClick={practice} disabled={practicing} className="press mt-1 flex items-center justify-center gap-1.5 py-1 text-sm font-semibold text-lilac-ink disabled:opacity-60">
+              <Sparkle size={15} weight="fill" /> {practicing ? 'Setting it up…' : 'New here? Try a practice circle, no real money'}
             </button>
           </div>
         </div>
@@ -272,7 +285,7 @@ function StartCards({ first }: { first: boolean }) {
         <Image src="/art/jar.webp" alt="" width={502} height={600} className="w-[72px] shrink-0" />
         <span className="flex-1">
           <span className="block font-display text-xl font-extrabold tracking-tight">Save for a goal</span>
-          <span className="mt-0.5 block text-[15px] text-ink-2">Just you. Lock it till a date so you can&apos;t touch it.</span>
+          <span className="mt-0.5 block text-[15px] text-ink-2">Rather save on your own? Just you, no circle. Lock it till a date so you can&apos;t touch it.</span>
         </span>
         <Plus size={22} weight="bold" />
       </Link>

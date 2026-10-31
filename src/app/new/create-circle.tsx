@@ -2,6 +2,7 @@
 
 import { Minus, Plus, Shuffle, UsersThree } from '@phosphor-icons/react/dist/ssr'
 import Image from 'next/image'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { BackLink, BottomBar, PrimaryButton, Screen, nim, useCountUp } from '@/components/ui'
@@ -93,6 +94,12 @@ function CreateCircleForm() {
           {people} people chip in {nim(contribution)} {currency}. Everyone takes the pot once, over {people} {unit}s.
         </p>
       </section>
+      <p className="mt-3 px-1 text-sm text-ink-2">
+        Only invite people you know and trust. Saving on your own?{' '}
+        <Link href="/goals/new" className="font-semibold text-coral-ink underline decoration-2 underline-offset-4">
+          Make a goal instead
+        </Link>
+      </p>
 
       <div className="mt-7 flex flex-col gap-7">
         <Field label="Name it" htmlFor="name">

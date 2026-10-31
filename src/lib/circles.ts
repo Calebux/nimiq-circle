@@ -1,8 +1,8 @@
 import 'server-only'
-import { displayName, usersByAddress, type User } from './auth'
+import { AVATAR_COUNT, displayName, usersByAddress, type User } from './auth'
 import { LIMITS, UNIT, type Currency } from './currency'
 import { all, newId, one, run } from './db'
-import { bankStatus, deliver, type BankDetails, type Method } from './delivery'
+import { bankStatus, deliver, simulateDelivery, type BankDetails, type Method } from './delivery'
 import { circleMemo, isSimulated, memoFor, reconcile, verifyDeposit, type DepositResult } from './deposits'
 import { serverConfig } from './env'
 import { ApiError } from './errors'
@@ -14,8 +14,11 @@ const MINUTE = 60_000
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 
-/** Round length per cadence. "Every 10 min" exists only with DEMO_CADENCE=1, for demo videos. */
-const CADENCE_MS: Record<string, number> = { Weekly: 7 * DAY, 'Every 2 weeks': 14 * DAY, Monthly: 30 * DAY, 'Every 10 min': 10 * MINUTE }
+/**
+ * Round length per cadence. "Every 10 min" exists only with DEMO_CADENCE=1, for demo videos;
+ * "Practice" only on practice circles, which also pay out as soon as everyone is in.
+ */
+const CADENCE_MS: Record<string, number> = { Weekly: 7 * DAY, 'Every 2 weeks': 14 * DAY, Monthly: 30 * DAY, 'Every 10 min': 10 * MINUTE, Practice: 10 * MINUTE }
 
 export function cadences(): string[] {
   const list = ['Weekly', 'Every 2 weeks', 'Monthly']
@@ -45,6 +48,8 @@ interface CircleRow {
   created_by: string
   currency: Currency
   created_at: number
+  /** 1: you plus two bots, every payment simulated. */
+  practice: number
 }
 
 interface MemberRow {
@@ -136,6 +141,66 @@ export async function createCircle(by: User, settings: CircleSettings) {
   )
   await run('INSERT INTO members (circle_id, address, turn, joined_at) VALUES (?, ?, 1, ?)', [id, by.address, now])
   return id
+}
+
+// --- Practice ------------------------------------------------------------------
+
+const PRACTICE_CONTRIBUTION = 5_000
+const BOT_NAMES = ['Tunde', 'Kemi', 'Ada', 'Kofi', 'Wanjiru', 'Thabo', 'Amaka', 'Sipho']
+/** Seconds into a round before each bot chips in, so you watch the pot fill. */
+const BOT_DELAYS = [4, 12]
+
+/**
+ * A circle to try the whole loop alone: you take the first pot, two bots chip in on their
+ * own, and nothing touches the chain or a bank. Reuses your open one if you have it.
+ */
+export async function createPractice(user: User) {
+  const open = await one<{ id: string }>("SELECT id FROM circles WHERE created_by = ? AND practice = 1 AND status = 'active'", [user.address])
+  if (open) return open.id
+
+  const Nimiq = await import('@nimiq/core')
+  const shuffle = <T,>(list: T[]) => [...list].sort(() => Math.random() - 0.5)
+  const names = shuffle(BOT_NAMES)
+  // Faces that differ from yours and from each other.
+  const avatars = shuffle(Array.from({ length: AVATAR_COUNT }, (_, i) => i + 1).filter((a) => a !== user.avatar))
+  const bots: string[] = []
+  for (const i of BOT_DELAYS.keys()) {
+    const address = Nimiq.KeyPair.generate().toAddress().toUserFriendlyAddress()
+    await run('INSERT INTO users (address, name, avatar, dev, bot, created_at) VALUES (?, ?, ?, 1, 1, ?)', [address, names[i], avatars[i], Date.now()])
+    bots.push(address)
+  }
+
+  const id = newId()
+  const now = Date.now()
+  await run(
+    `INSERT INTO circles (id, name, local_name, cadence, contribution, size, order_mode, invite_code, status, round, started_at, created_by, currency, practice, created_at)
+     VALUES (?, 'Practice circle', 'Ajo', 'Practice', ?, ?, 'join', ?, 'active', 1, ?, ?, 'NIM', 1, ?)`,
+    [id, PRACTICE_CONTRIBUTION * UNIT.NIM, bots.length + 1, `PRACTICE-${newId(6).toUpperCase()}`, now, user.address, now],
+  )
+  for (const [i, address] of [user.address, ...bots].entries()) {
+    await run('INSERT INTO members (circle_id, address, turn, joined_at) VALUES (?, ?, ?, ?)', [id, address, i + 1, now + i])
+  }
+  return id
+}
+
+/** Bots chip in a few seconds after their round opens. */
+async function botsPay(circle: CircleRow, members: MemberRow[]) {
+  const bots = new Set((await all<{ address: string }>('SELECT address FROM users WHERE bot = 1 AND address IN (SELECT address FROM members WHERE circle_id = ?)', [circle.id])).map((b) => b.address))
+  const lastPot = await one<{ at: number }>("SELECT MAX(created_at) AS at FROM payouts WHERE circle_id = ? AND kind = 'pot'", [circle.id])
+  const openedAt = Math.max(circle.started_at ?? 0, lastPot?.at ?? 0)
+  const paid = await paidThisRound(circle.id, circle.round)
+  let i = 0
+  for (const m of members) {
+    if (!bots.has(m.address)) continue
+    const delay = BOT_DELAYS[i++] ?? 20
+    if (paid.includes(m.address) || Date.now() < openedAt + delay * 1000) continue
+    const memo = circleMemo(circle.id, circle.round)
+    await run(
+      `INSERT OR IGNORE INTO deposits (tx_hash, kind, ref_id, round, address, amount, memo, status, currency, created_at)
+       VALUES (?, 'circle', ?, ?, ?, ?, ?, 'confirmed', ?, ?)`,
+      [`mock-${memo}-${m.address.replace(/\s/g, '').slice(-6)}`, circle.id, circle.round, m.address, circle.contribution, memo, circle.currency, Date.now()],
+    )
+  }
 }
 
 export async function circleByCode(code: string) {
@@ -321,13 +386,14 @@ export async function advance(circleId: string) {
     await reconcileCircle(circle, members)
     await settleLate(circle, members)
     if (circle.status !== 'active') return
+    if (circle.practice) await botsPay(circle, members)
 
     const paid = await paidThisRound(circleId, circle.round)
     const unpaid = members.filter((m) => !paid.some((a) => sameAddress(a, m.address)))
     const due = dueAt(circle, circle.round)
     const now = Date.now()
     if (unpaid.length === 0) {
-      if (!serverConfig().instantPayouts && due && now < due) return
+      if (!serverConfig().instantPayouts && !circle.practice && due && now < due) return
     } else if (!due || now < due + graceOf(circle.cadence)) {
       return
     }
@@ -397,6 +463,7 @@ export async function recordContribution(user: User, circleId: string, hint: str
     minAmount: circle.contribution,
     hint,
     currency: circle.currency,
+    simulated: Boolean(circle.practice),
   })
   if (result.status === 'confirmed') await advance(circleId)
   return result
@@ -465,21 +532,17 @@ export async function claimPayout(user: User, payoutId: string, method: Method, 
   if (!payout || !sameAddress(payout.address, user.address)) throw new ApiError('Payout not found', 404)
   const currency = await currencyOf(payout.circle_id)
   if (payout.status !== 'claimable') return publicPayout(await settle(payout), currency)
+  const practice = await one<{ practice: number }>('SELECT practice FROM circles WHERE id = ?', [payout.circle_id])
 
   // Claim first so a double tap cannot send twice.
   const claimed = await run("UPDATE payouts SET status = 'sending' WHERE id = ? AND status = 'claimable'", [payoutId])
   if (claimed.rowsAffected === 0) throw new ApiError('This payout is already on its way')
   try {
-    const d = await deliver({
-      to: user,
-      amount: payout.pot + payout.bonus,
-      currency,
-      memo: `cp:${payout.circle_id}:${payout.round}`,
-      method,
-      bank,
-      reference: `cp-${payout.id}`,
-      evmAddress,
-    })
+    const amount = payout.pot + payout.bonus
+    const reference = `cp-${payout.id}`
+    const d = practice?.practice
+      ? await simulateDelivery({ to: user, amount, currency, method, bank, reference })
+      : await deliver({ to: user, amount, currency, memo: `cp:${payout.circle_id}:${payout.round}`, method, bank, reference, evmAddress })
     await run('UPDATE payouts SET status = ?, method = ?, tx_hash = ?, bank = ?, ngn = ?, provider_id = ?, settled_at = ? WHERE id = ?', [
       d.status,
       method,
@@ -529,6 +592,48 @@ export async function getPayout(user: User, payoutId: string) {
   )
 }
 
+// --- Track record --------------------------------------------------------------
+
+export interface TrackRecord {
+  onTime: number
+  rounds: number
+}
+
+/**
+ * Rounds each person paid on time out of the rounds they had to pay, across real circles.
+ * A late payment settles a miss, so it counts as a round but not as on time.
+ */
+async function trackRecords(addresses: string[]): Promise<Map<string, TrackRecord>> {
+  const records = new Map(addresses.map((a) => [a, { onTime: 0, rounds: 0 }]))
+  if (addresses.length === 0) return records
+  const marks = addresses.map(() => '?').join(',')
+  const [paid, missed] = await Promise.all([
+    all<{ address: string; n: number }>(
+      `SELECT d.address, COUNT(*) AS n FROM deposits d JOIN circles c ON c.id = d.ref_id
+       WHERE d.kind = 'circle' AND c.practice = 0 AND d.address IN (${marks}) GROUP BY d.address`,
+      addresses,
+    ),
+    all<{ address: string; n: number; settled: number }>(
+      `SELECT m.address, COUNT(*) AS n, SUM(m.settled_tx IS NOT NULL) AS settled FROM misses m JOIN circles c ON c.id = m.circle_id
+       WHERE c.practice = 0 AND m.address IN (${marks}) GROUP BY m.address`,
+      addresses,
+    ),
+  ])
+  for (const p of paid) {
+    const r = records.get(p.address)
+    if (!r) continue
+    r.onTime += p.n
+    r.rounds += p.n
+  }
+  for (const m of missed) {
+    const r = records.get(m.address)
+    if (!r) continue
+    r.onTime -= m.settled
+    r.rounds += m.n - m.settled
+  }
+  return records
+}
+
 // --- Views -------------------------------------------------------------------
 
 export async function circleView(user: User, circleId: string) {
@@ -538,12 +643,13 @@ export async function circleView(user: User, circleId: string) {
   const you = members.find((m) => sameAddress(m.address, user.address))
   if (!you) throw new ApiError('You are not in this circle', 403)
 
-  const [users, paid, payouts, balance, misses] = await Promise.all([
+  const [users, paid, payouts, balance, misses, records] = await Promise.all([
     usersByAddress(members.map((m) => m.address)),
     circle.status === 'active' ? paidThisRound(circleId, circle.round) : Promise.resolve([] as string[]),
     all<PayoutRow>('SELECT * FROM payouts WHERE circle_id = ? ORDER BY round, created_at', [circleId]),
     heldBalance(circleId),
     unsettledMisses(circleId),
+    trackRecords(members.map((m) => m.address)),
   ])
   const earned = await yieldShare(balance.held, balance.simulated, circle.currency)
   const unit = UNIT[circle.currency]
@@ -567,6 +673,7 @@ export async function circleView(user: User, circleId: string) {
     round: circle.round,
     inviteCode: circle.invite_code,
     orderMode: circle.order_mode,
+    practice: Boolean(circle.practice),
     isCreator: sameAddress(circle.created_by, user.address),
     roundDueAt: due,
     /** Past the due date with someone unpaid. */
@@ -595,6 +702,8 @@ export async function circleView(user: User, circleId: string) {
         late: late && !paid.some((a) => sameAddress(a, m.address)),
         owes: misses.filter((x) => sameAddress(x.address, m.address)).map((x) => x.round),
         tookPot: payouts.some((p) => p.kind === 'pot' && p.round === m.turn),
+        bot: Boolean(u?.bot),
+        record: u?.bot ? null : (records.get(m.address) ?? null),
       }
     }),
     yourPayout: yourPayout ? publicPayout(await settle(yourPayout), circle.currency, yourPayout.from_address ? nameOf(yourPayout.from_address) : undefined) : null,
@@ -605,7 +714,7 @@ export type CircleView = Awaited<ReturnType<typeof circleView>>
 export async function circlePreview(code: string) {
   const circle = await circleByCode(code)
   const members = await membersOf(circle.id)
-  const users = await usersByAddress(members.map((m) => m.address))
+  const [users, records] = await Promise.all([usersByAddress(members.map((m) => m.address)), trackRecords(members.map((m) => m.address))])
   return {
     id: circle.id,
     name: circle.name,
@@ -616,7 +725,7 @@ export async function circlePreview(code: string) {
     size: circle.size,
     status: circle.status,
     inviteCode: circle.invite_code,
-    members: members.map((m) => ({ name: displayName(users.get(m.address)), avatar: users.get(m.address)?.avatar ?? 1, turn: m.turn })),
+    members: members.map((m) => ({ name: displayName(users.get(m.address)), avatar: users.get(m.address)?.avatar ?? 1, turn: m.turn, record: records.get(m.address) ?? null })),
   }
 }
 export type CirclePreview = Awaited<ReturnType<typeof circlePreview>>
@@ -652,6 +761,7 @@ export async function myCircles(user: User) {
         late: Boolean(due && Date.now() >= due && !paid.some((a) => sameAddress(a, user.address))),
         owes: owes?.n ?? 0,
         payoutReady: Boolean(claimable),
+        practice: Boolean(c.practice),
       }
     }),
   )

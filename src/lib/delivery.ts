@@ -6,7 +6,7 @@ import { ApiError } from './errors'
 import { isEvmAddress, sendUsdtFromPool } from './evm/polygon'
 import { sendFromPool } from './nimiq/pool-signer'
 import { offrampProvider } from './offramp'
-import { executeCashout } from './treasury'
+import { executeCashout, spendPracticeQuote } from './treasury'
 import { invalidateYield } from './yield'
 
 export type Method = 'wallet' | 'bank'
@@ -84,8 +84,21 @@ export async function deliver(input: {
   }
 }
 
+/** Practice circles: nothing leaves the pool. A bank cash-out still uses a live quote, so the rate is real. */
+export async function simulateDelivery(input: { to: User; amount: number; currency: Currency; method: Method; bank?: BankDetails; reference: string }): Promise<Delivery> {
+  const txHash = `mock-${input.reference}`
+  if (input.method === 'wallet') return { status: 'sent', txHash, ngn: null, providerId: null, bank: null }
+  const bank = input.bank
+  if (!bank) throw new ApiError('Choose a bank account')
+  const ngn = await spendPracticeQuote({ user: input.to, quoteId: bank.quoteId, amount: input.amount, currency: input.currency })
+  return { status: 'cashing', txHash, ngn, providerId: `${PRACTICE}${input.reference}`, bank: `${bank.bankName} ••${bank.accountNumber.slice(-4)} · ${bank.accountName}` }
+}
+
+const PRACTICE = 'practice-'
+
 /** Where a bank transfer is: still going, landed, or refunded to the pool. */
 export async function bankStatus(providerId: string): Promise<'processing' | 'paid' | 'failed'> {
+  if (providerId.startsWith(PRACTICE)) return 'paid'
   try {
     return (await offrampProvider().getPayout(providerId)).status
   } catch (err) {

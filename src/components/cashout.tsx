@@ -91,6 +91,7 @@ export function CashOutSheet({
   amount,
   currency,
   onConfirm,
+  practice = false,
 }: {
   open: boolean
   onOpenChange: (o: boolean) => void
@@ -98,6 +99,8 @@ export function CashOutSheet({
   amount: number
   currency: Currency
   onConfirm: (bank: BankChoice) => Promise<void>
+  /** Practice circle: any account number works and nothing is sent; the rate is still live. */
+  practice?: boolean
 }) {
   const [picking, setPicking] = useState(false)
   const [banks, setBanks] = useState<Bank[]>(BANKS)
@@ -111,11 +114,12 @@ export function CashOutSheet({
   const secondsLeft = useCountdown(quote?.expiresAt ?? null)
 
   const key = `${bank.code}:${account}`
-  const name = resolved?.key === key ? resolved.name : null
+  const name = practice && account.length === 10 ? 'Practice account' : resolved?.key === key ? resolved.name : null
   const resolving = account.length === 10 && !name && !error
 
   useEffect(() => {
     if (account.length !== 10) return
+    if (practice) return
     let cancelled = false
     api<{ accountName: string }>('/api/offramp', { body: { action: 'resolve', bankCode: bank.code, accountNumber: account } }).then(
       (r) => !cancelled && setResolved({ key: `${bank.code}:${account}`, name: r.accountName }),
@@ -124,7 +128,7 @@ export function CashOutSheet({
     return () => {
       cancelled = true
     }
-  }, [bank, account])
+  }, [bank, account, practice])
 
   // The provider's list, so nobody picks a bank it cannot pay.
   useEffect(() => {
@@ -184,7 +188,7 @@ export function CashOutSheet({
       open={open}
       onOpenChange={onOpenChange}
       title={picking ? 'Choose a bank' : 'Cash out to bank'}
-      description={picking ? undefined : 'Naira lands in your account in about a minute.'}
+      description={picking ? undefined : practice ? 'Practice: type any 10 digits. The rate is real, but nothing is sent.' : 'Naira lands in your account in about a minute.'}
     >
       {picking ? (
         <BankPicker
@@ -301,7 +305,7 @@ export function Sent({
           {method === 'bank' && ngn !== null ? naira(ngn) : `${nim(amount, 2)} ${currency}`}
         </p>
         {bank && <p className="mt-2 text-ink-2">to {bank.split(' · ')[1] ?? bank}</p>}
-        {simulated && <p className="mt-2 text-xs text-ink-2">Test wallet: simulated, nothing moved on chain.</p>}
+        {simulated && <p className="mt-2 text-xs text-ink-2">Practice: nothing moved on chain or to a bank.</p>}
       </div>
 
       <ol className="mt-8 rounded-card bg-white p-5 shadow-soft">

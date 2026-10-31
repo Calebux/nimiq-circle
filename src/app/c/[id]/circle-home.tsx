@@ -9,6 +9,7 @@ import { SignedIn, Splash } from '@/components/gate'
 import { Avatar, AvatarStack, BackLink, BottomBar, Chip, PrimaryButton, Screen, Sheet, nim, shortDate, useCountUp, useReducedMotion } from '@/components/ui'
 import { api, Ngn, useApi, usePayment } from '@/components/wallet'
 import type { CircleView } from '@/lib/circles'
+import { Record } from '@/components/record'
 import { EditCircleSheet, RemoveSheet, StartNowSheet } from './manage'
 
 type Member = CircleView['members'][number]
@@ -181,7 +182,7 @@ function EarnCard({ earned, currency }: { earned: number; currency: CircleView['
 const dueTime = (ms: number) => new Date(ms).toLocaleString('en-GB', { weekday: 'short', hour: 'numeric', minute: '2-digit' })
 
 /** A round's date; with the 10-minute demo cadence the time is what matters. */
-const dueLabel = (circle: CircleView, ms: number) => (circle.cadence === 'Every 10 min' ? dueTime(ms) : shortDate(ms))
+const dueLabel = (circle: CircleView, ms: number) => (circle.cadence === 'Every 10 min' || circle.practice ? dueTime(ms) : shortDate(ms))
 
 function NudgeButton({ circle, member }: { circle: CircleView; member: Member }) {
   const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle')
@@ -240,6 +241,7 @@ function MembersCard({ circle }: { circle: CircleView }) {
                   `Takes the pot in round ${m.turn}`
                 )}
               </p>
+              <Record member={m} />
             </div>
             {!active ? null : m.paid ? (
               <Chip tone="mint">
@@ -280,7 +282,7 @@ function OwedCard({ circle, reload }: { circle: CircleView; reload: () => void }
   if (circle.yourMisses.length === 0) return null
   async function pay(m: CircleView['yourMisses'][number]) {
     setPaying(m.round)
-    const ok = await payment.run({ amount: m.amount, currency: circle.currency, memo: m.memo, confirmUrl: `/api/circles/${circle.id}/contribution`, extra: { round: m.round } })
+    const ok = await payment.run({ amount: m.amount, currency: circle.currency, memo: m.memo, confirmUrl: `/api/circles/${circle.id}/contribution`, extra: { round: m.round }, practice: circle.practice })
     setPaying(null)
     if (ok) reload()
   }
@@ -322,7 +324,7 @@ function ChipInSheet({ circle, open, onOpenChange, onPaid }: { circle: CircleVie
 
   async function approve() {
     if (!circle.memo) return
-    const ok = await payment.run({ amount: circle.contribution, currency: circle.currency, memo: circle.memo, confirmUrl: `/api/circles/${circle.id}/contribution` })
+    const ok = await payment.run({ amount: circle.contribution, currency: circle.currency, memo: circle.memo, confirmUrl: `/api/circles/${circle.id}/contribution`, practice: circle.practice })
     if (ok) {
       onOpenChange(false)
       onPaid()
@@ -330,7 +332,9 @@ function ChipInSheet({ circle, open, onOpenChange, onPaid }: { circle: CircleVie
   }
 
   const usdt = circle.currency === 'USDT'
-  const label = payment.state === 'approving' ? 'Approve in Nimiq Pay…' : payment.state === 'confirming' ? `Confirming on ${usdt ? 'Polygon' : 'Nimiq'}…` : 'Approve in Nimiq Pay'
+  const label = circle.practice
+    ? payment.state === 'idle' ? 'Chip in (practice)' : 'Chipping in…'
+    : payment.state === 'approving' ? 'Approve in Nimiq Pay…' : payment.state === 'confirming' ? `Confirming on ${usdt ? 'Polygon' : 'Nimiq'}…` : 'Approve in Nimiq Pay'
   return (
     <Sheet
       open={open}
@@ -355,7 +359,9 @@ function ChipInSheet({ circle, open, onOpenChange, onPaid }: { circle: CircleVie
 
       <p className="mt-4 flex gap-2 text-sm leading-snug text-ink-2">
         <ShieldCheck size={20} weight="fill" className="shrink-0 text-mint" />
-        Every contribution is a public {usdt ? 'Polygon' : 'Nimiq'} transaction with this reference, so anyone in the circle can check who paid.
+        {circle.practice
+          ? 'In a real circle this is a public Nimiq transaction with this reference, so anyone in the circle can check who paid. Here nothing is sent.'
+          : `Every contribution is a public ${usdt ? 'Polygon' : 'Nimiq'} transaction with this reference, so anyone in the circle can check who paid.`}
       </p>
 
       {payment.error && <p className="mt-3 rounded-[var(--radius-inner)] bg-coral-soft px-4 py-3 text-sm text-coral-ink">{payment.error}</p>}
@@ -385,6 +391,19 @@ function Header({ circle }: { circle: CircleView }) {
         <AvatarStack avatars={circle.members.map((m) => m.avatar)} />
       </Link>
     </header>
+  )
+}
+
+function PracticeBanner({ circle }: { circle: CircleView }) {
+  if (!circle.practice) return null
+  const bots = circle.members.filter((m) => m.bot).map((m) => m.name)
+  return (
+    <section className="flex gap-3 rounded-card bg-lilac-soft p-4 text-lilac-ink">
+      <Sparkle size={22} weight="fill" className="mt-0.5 shrink-0" />
+      <p className="text-[15px] leading-snug">
+        <strong className="font-bold">Practice circle.</strong> No real money moves. {bots.join(' and ')} are practice friends who always pay, and pots go out as soon as everyone is in. Real circles are for people you know.
+      </p>
+    </section>
   )
 }
 
@@ -464,6 +483,7 @@ function Filling({ circle, onChange, reload }: { circle: CircleView; onChange: (
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold">{m.name}</p>
                 <p className="text-sm text-ink-2">{m.startedIt ? 'Started the circle' : `Turn ${m.turn}`}</p>
+                <Record member={m} />
               </div>
               {circle.isCreator && !m.isYou && (
                 <button onClick={() => setRemoving(m)} aria-label={`Remove ${m.name}`} className="press grid size-9 place-items-center rounded-full bg-blush text-ink-2">
@@ -530,6 +550,7 @@ function Active({ circle, reload }: { circle: CircleView; reload: () => void }) 
     <Screen>
       <Header circle={circle} />
       <div className="mt-6 flex flex-col gap-4">
+        <PracticeBanner circle={circle} />
         <PayoutBanner circle={circle} />
         <OwedCard circle={circle} reload={reload} />
         <LateBanner circle={circle} />

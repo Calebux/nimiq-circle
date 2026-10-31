@@ -108,11 +108,13 @@ export async function verifyDeposit(input: {
   currency: Currency
   /** Dev wallet only: amount the simulated payment carried. */
   devAmount?: number
+  /** Practice circles: nothing is paid, record it as simulated for anyone. */
+  simulated?: boolean
 }): Promise<DepositResult> {
   const { user, kind, refId, round, memo, minAmount, hint, currency } = input
 
-  if (hint?.startsWith('mock:')) {
-    if (!user.dev || !serverConfig().devWallet) throw new ApiError('Simulated payments are disabled')
+  if (input.simulated || hint?.startsWith('mock:')) {
+    if (!input.simulated && (!user.dev || !serverConfig().devWallet)) throw new ApiError('Simulated payments are disabled')
     // One simulated payment per circle round per member; goals take any number of top-ups.
     const nonce = kind === 'goal' ? `-${newId(6)}` : ''
     const deposit = await insert({
