@@ -29,15 +29,27 @@ export function Welcome({ title, children }: { title?: React.ReactNode; children
               <h1 className="mt-6 font-display text-[40px] font-extrabold leading-[1.02] tracking-tight">
                 {title ?? (
                   <>
-                    The perfect
+                    The all-in-one
                     <br />
-                    money app.
+                    savings app.
                   </>
                 )}
               </h1>
-              <p className="mt-3 text-[17px] leading-relaxed text-ink-2">
-                Ajo, tanda, susu, chama with friends you trust: everyone chips in each round and one person takes the whole pot. Saving alone? Lock it away in a goal. Waiting money earns.
-              </p>
+              <p className="mt-3 text-[17px] leading-relaxed text-ink-2">Every way to save, in one place:</p>
+              <ul className="mt-2 flex flex-col gap-1.5 text-[16px] leading-snug text-ink-2">
+                <li>
+                  <span className="font-semibold text-ink">Circles.</span> Ajo, tanda, susu, chama with friends you trust: everyone chips in each round, one person takes the pot.
+                </li>
+                <li>
+                  <span className="font-semibold text-ink">Goals with Akilii.</span> Lock it away until your date. Waiting money earns.
+                </li>
+                <li>
+                  <span className="font-semibold text-ink">Goals in your wallet.</span> Staked by your own wallet. Akilii never holds it.
+                </li>
+                <li>
+                  <span className="font-semibold text-ink">Friends chip in</span> to any goal by link.
+                </li>
+              </ul>
               <div className="mt-4 flex flex-wrap gap-2">
                 <Chip tone="sun">Cash out in naira</Chip>
                 <Chip tone="lilac">Naira top-ups soon</Chip>

@@ -22,12 +22,12 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL("https://akilii.xyz"),
   applicationName: "Akilii",
-  title: "Akilii | The perfect money app",
-  description: "The perfect money app. Save together, take turns, and build your savings with Nimiq Pay.",
+  title: "Akilii | The all-in-one savings app",
+  description: "The all-in-one savings app. Save together in circles, lock goals away, or keep them in your own wallet, with Nimiq Pay.",
   openGraph: {
     siteName: "Akilii",
-    title: "Akilii | The perfect money app",
-    description: "The perfect money app. Save together, take turns, and build your savings with Nimiq Pay.",
+    title: "Akilii | The all-in-one savings app",
+    description: "The all-in-one savings app. Save together in circles, lock goals away, or keep them in your own wallet, with Nimiq Pay.",
     type: "website",
   },
 };
