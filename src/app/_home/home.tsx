@@ -36,12 +36,12 @@ function NamePrompt() {
     }
   }
   return (
-    <section className="pop-in flex flex-col gap-3 rounded-card bg-white p-5 shadow-soft">
+    <section className="pop-in flex flex-col gap-3 rounded-card bg-white p-4 shadow-soft">
       <div className="flex items-center gap-3">
-        <Avatar avatar={me.avatar} size={52} />
+        <Avatar avatar={me.avatar} size={40} />
         <div>
-          <h2 className="font-display text-xl font-bold tracking-tight">First, what&apos;s your name?</h2>
-          <p className="text-sm text-ink-2">How people in your circles will see you. You can change it later.</p>
+          <h2 className="font-display text-lg font-bold leading-tight tracking-tight">First, what&apos;s your name?</h2>
+          <p className="text-sm text-ink-2">So friends know it&apos;s you.</p>
         </div>
       </div>
       <div className="flex gap-2">
@@ -270,30 +270,34 @@ function StartCards({ first }: { first: boolean }) {
   }
   return (
     <>
-      <section className="overflow-hidden rounded-card bg-white shadow-soft">
-        <Image src="/art/friends.webp" alt="" width={1200} height={714} className="mx-auto -mb-2 mt-4 w-[82%]" />
-        <div className="p-5 pt-3">
-          <h2 className="font-display text-2xl font-extrabold tracking-tight">{first ? 'Save with your people' : 'Start another circle'}</h2>
-          <p className="mt-1 text-[15px] text-ink-2">A circle is for friends and family you trust. Everyone chips in each round and one person takes the whole pot, then the next.</p>
-          <div className="mt-4 flex flex-col gap-2">
-            <PrimaryButton href="/new">New circle</PrimaryButton>
-            <button onClick={() => setJoining(true)} className="press flex h-12 items-center justify-center gap-2 rounded-full bg-blush font-bold">
-              <Ticket size={18} weight="bold" /> Join with a code
+      <section className="rounded-card bg-white p-5 shadow-soft">
+        <div className="flex items-start gap-3">
+          <div className="flex-1">
+            <h2 className="font-display text-xl font-extrabold tracking-tight">{first ? 'Save with your people' : 'Start another circle'}</h2>
+            <p className="mt-1 text-[15px] leading-snug text-ink-2">Friends you trust chip in each round. One person takes the pot, then the next.</p>
+          </div>
+          <Image src="/art/friends.webp" alt="" width={1200} height={714} className="w-[96px] shrink-0" />
+        </div>
+        <div className="mt-4 flex flex-col gap-2">
+          <PrimaryButton href="/new">New circle</PrimaryButton>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setJoining(true)} className="press flex h-11 items-center justify-center gap-1.5 rounded-full bg-blush text-[15px] font-bold">
+              <Ticket size={17} weight="bold" /> Join with code
             </button>
-            <button onClick={practice} disabled={practicing} className="press mt-1 flex items-center justify-center gap-1.5 py-1 text-sm font-semibold text-lilac-ink disabled:opacity-60">
-              <Sparkle size={15} weight="fill" /> {practicing ? 'Setting it up…' : 'New here? Try a practice circle, no real money'}
+            <button onClick={practice} disabled={practicing} className="press flex h-11 items-center justify-center gap-1.5 rounded-full bg-lilac-soft text-[15px] font-bold text-lilac-ink disabled:opacity-60">
+              <Sparkle size={15} weight="fill" /> {practicing ? 'Setting up…' : 'Practice'}
             </button>
           </div>
         </div>
       </section>
 
-      <Link href="/goals/new" className="press flex items-center gap-4 rounded-card bg-sky-soft p-5 shadow-soft">
-        <Image src="/art/jar.webp" alt="" width={502} height={600} className="w-[72px] shrink-0" />
+      <Link href="/goals/new" className="press flex items-center gap-3 rounded-card bg-sky-soft p-4 shadow-soft">
+        <Image src="/art/jar.webp" alt="" width={502} height={600} className="w-[56px] shrink-0" />
         <span className="flex-1">
           <span className="block font-display text-xl font-extrabold tracking-tight">Save for a goal</span>
-          <span className="mt-0.5 block text-[15px] text-ink-2">Rather save on your own? Just you, no circle. Lock it till a date so you can&apos;t touch it.</span>
+          <span className="mt-0.5 block text-[15px] leading-snug text-ink-2">Just you. Lock it with Akilii till a date, or keep it staked in your own wallet. Friends can chip in.</span>
         </span>
-        <Plus size={22} weight="bold" />
+        <Plus size={22} weight="bold" className="shrink-0" />
       </Link>
 
       <Sheet open={joining} onOpenChange={setJoining} title="Join a circle" description="Enter the code your friend shared.">
@@ -332,9 +336,8 @@ function HomeContent() {
     <Screen bar={false}>
       <header className="flex items-center justify-between">
         <div>
-          <p className="mb-2 font-display text-lg font-extrabold tracking-tight">Akilii</p>
           <p className="text-sm text-ink-2">
-            {greeting()}
+            <span className="font-display font-extrabold text-ink">Akilii</span> · {greeting()}
             {me?.name ? `, ${me.name}` : ''}
           </p>
           <h1 className="font-display text-[32px] font-extrabold leading-none tracking-tight">{empty ? 'Welcome' : 'Your savings'}</h1>
@@ -346,7 +349,7 @@ function HomeContent() {
         )}
       </header>
 
-      <div className="mt-6 flex flex-col gap-4">
+      <div className="mt-5 flex flex-col gap-4">
         <NamePrompt />
         <Inbox />
         {data.circles.length > 0 && (
