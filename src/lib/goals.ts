@@ -11,6 +11,7 @@ import { exitAmounts, exitFeePolicy, type ExitFeeBasis } from './goal-exit-polic
 import { serverConfig } from './env'
 import { getBalance } from './nimiq/rpc'
 import { goalExtras, notifyChipIn, parsePlan } from './goal-friends'
+import { walletGoalBalance, walletGoalView } from './wallet-goals'
 
 /** Smallest deposit worth a transaction, in the goal's smallest unit. */
 const minDeposit = (currency: Currency) => Math.round(MIN_DEPOSIT[currency] * UNIT[currency])
@@ -24,6 +25,7 @@ interface GoalRow {
   status: 'open' | 'closed'
   currency: Currency
   created_at: number
+  custody: 'pool' | 'wallet'
 }
 
 interface WithdrawalRow {
@@ -50,16 +52,27 @@ async function ownGoal(user: User, id: string): Promise<GoalRow> {
   return goal
 }
 
-export async function createGoal(user: User, input: { name: string; target: number | null; unlockAt: number | null; currency: Currency; plan?: { cadence: unknown; amount: unknown } }) {
+/** Deposits, exits and withdrawals through the pool. Wallet goals use src/lib/wallet-goals.ts. */
+async function ownPoolGoal(user: User, id: string): Promise<GoalRow> {
+  const goal = await ownGoal(user, id)
+  if (goal.custody === 'wallet') throw new ApiError('This goal is kept in your wallet', 409)
+  return goal
+}
+
+export async function createGoal(user: User, input: { name: string; target: number | null; unlockAt: number | null; currency: Currency; plan?: { cadence: unknown; amount: unknown }; custody?: 'pool' | 'wallet' }) {
   const name = input.name.trim().slice(0, 32)
   if (!name) throw new ApiError('Give your goal a name')
   const { max } = LIMITS[input.currency]
   if (input.target !== null && (!Number.isInteger(input.target) || input.target < 1 || input.target > max * 100)) throw new ApiError(`Targets are whole ${input.currency}`)
   if (input.unlockAt !== null && input.unlockAt < Date.now() + 86_400_000) throw new ApiError('Lock it for at least a day')
+  const custody = input.custody === 'wallet' ? 'wallet' : 'pool'
+  // Wallet goals stake from the owner's own wallet: NIM only, and nothing can be locked.
+  if (custody === 'wallet' && input.currency !== 'NIM') throw new ApiError('Goals in your wallet save in NIM')
+  if (custody === 'wallet' && input.unlockAt !== null) throw new ApiError('Goals in your wallet cannot be locked')
   const plan = input.plan ? parsePlan(input.plan, input.currency) : null
   const id = newId()
   const now = Date.now()
-  await run("INSERT INTO goals (id, owner, name, target, unlock_at, status, currency, created_at, plan_cadence, plan_amount, plan_anchor) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)", [
+  await run("INSERT INTO goals (id, owner, name, target, unlock_at, status, currency, created_at, plan_cadence, plan_amount, plan_anchor, custody) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)", [
     id,
     user.address,
     name,
@@ -70,14 +83,15 @@ export async function createGoal(user: User, input: { name: string; target: numb
     plan?.cadence ?? null,
     plan?.amount ?? null,
     plan ? now : null,
+    custody,
   ])
   return id
 }
 
 /** Credit payments tagged for this goal that the app never reported: the owner's, or a friend's chip-in. */
 async function reconcileGoal(goal: GoalRow) {
-  // USDT goals are reconciled from reported transfers instead (syncEvmPending).
-  if (goal.currency !== 'NIM') return
+  // USDT goals are reconciled from reported transfers instead (syncEvmPending). Wallet goals hold nothing in the pool.
+  if (goal.currency !== 'NIM' || goal.custody === 'wallet') return
   const friends: { hash: string; payer: string; value: number }[] = []
   await reconcile('goal', goal.id, (_memo, payer, tx) => {
     if (tx.value < minDeposit('NIM')) return null
@@ -100,7 +114,7 @@ async function balanceOf(goalId: string) {
 }
 
 export async function recordGoalDeposit(user: User, goalId: string, hint: string | null, devAmount?: number): Promise<DepositResult> {
-  const goal = await ownGoal(user, goalId)
+  const goal = await ownPoolGoal(user, goalId)
   if (goal.status !== 'open') throw new ApiError('This goal is closed')
   return verifyDeposit({
     user,
@@ -130,7 +144,7 @@ interface ExitQuoteRow {
 
 /** Quotes are bound to the owner, goal, balance and lock date. Creating one never moves money. */
 export async function quoteGoalExit(user: User, goalId: string) {
-  const goal = await ownGoal(user, goalId)
+  const goal = await ownPoolGoal(user, goalId)
   const policy = exitFeePolicy()
   if (!policy) throw new ApiError('Breaking a lock is not available yet', 403)
   if (goal.status !== 'open' || !goal.unlock_at || goal.unlock_at <= Date.now()) throw new ApiError('This goal is no longer locked. Refresh to withdraw without a break fee.', 409)
@@ -152,7 +166,7 @@ export type GoalExitQuote = Awaited<ReturnType<typeof quoteGoalExit>>
 
 /** Flexible/mature goals are free; an early exit requires explicit acceptance of a server quote. */
 export async function withdrawGoal(user: User, goalId: string, method: Method, bank?: BankDetails, evmAddress?: string, earlyExitQuoteId?: string) {
-  const goal = await ownGoal(user, goalId)
+  const goal = await ownPoolGoal(user, goalId)
   if (goal.status !== 'open') throw new ApiError('This goal is closed', 409)
   await reconcileGoal(goal)
   const locked = Boolean(goal.unlock_at && Date.now() < goal.unlock_at)
@@ -249,8 +263,16 @@ function publicWithdrawal(w: WithdrawalRow, currency: Currency) {
 }
 export type PublicWithdrawal = ReturnType<typeof publicWithdrawal>
 
+/** The owner's goal page, either kind. */
+export async function anyGoalView(user: User, goalId: string) {
+  const goal = await ownGoal(user, goalId)
+  if (goal.custody !== 'wallet') return goalView(user, goalId)
+  const { plan } = await goalExtras(goalId, [])
+  return walletGoalView(user, goalId, { plan })
+}
+
 export async function goalView(user: User, goalId: string) {
-  const pending = await ownGoal(user, goalId)
+  const pending = await ownPoolGoal(user, goalId)
   await reconcileGoal(pending)
   for (const w of await all<WithdrawalRow>("SELECT * FROM withdrawals WHERE goal_id = ? AND status = 'cashing'", [goalId])) await settle(w)
   const goal = await ownGoal(user, goalId)
@@ -263,6 +285,7 @@ export async function goalView(user: User, goalId: string) {
   const unit = UNIT[goal.currency]
   const { plan, nameOf } = await goalExtras(goal.id, deposits.filter((d) => !sameAddress(d.address, goal.owner)).map((d) => d.address))
   return {
+    custody: 'pool' as const,
     id: goal.id,
     name: goal.name,
     currency: goal.currency,
@@ -294,7 +317,8 @@ export async function myGoals(user: User) {
       target: g.target === null ? null : g.target / UNIT[g.currency],
       unlockAt: g.unlock_at,
       locked: Boolean(g.unlock_at && Date.now() < g.unlock_at),
-      balance: (await balanceOf(g.id)).balance / UNIT[g.currency],
+      custody: g.custody,
+      balance: g.custody === 'wallet' ? await walletGoalBalance(g.id) : (await balanceOf(g.id)).balance / UNIT[g.currency],
     })),
   )
 }

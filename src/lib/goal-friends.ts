@@ -7,6 +7,7 @@ import { ApiError } from './errors'
 import { currentPeriod, isPlanCadence, remindBefore, type PlanCadence } from './goal-plan'
 import { sameAddress } from './nimiq/address'
 import { notify } from './notices'
+import { recordWalletGift, walletGoalBalance } from './wallet-goals'
 
 /**
  * Two things around a savings goal:
@@ -27,6 +28,7 @@ interface GoalRow {
   plan_cadence: PlanCadence | null
   plan_amount: number | null
   plan_anchor: number | null
+  custody: 'pool' | 'wallet'
 }
 
 const money = (amount: number, currency: Currency) => `${(amount / UNIT[currency]).toLocaleString('en-US', { maximumFractionDigits: 2 })} ${currency}`
@@ -73,7 +75,12 @@ async function totals(goalId: string, owner: string) {
 /** What a friend sees before chipping in. Public: name, owner, and progress toward the target if one is set. */
 export async function goalPreview(code: string, viewer: User | null) {
   const goal = await goalByCode(code)
-  const { balance, friends } = await totals(goal.id, goal.owner)
+  const wallet = goal.custody === 'wallet'
+  const { friends: poolFriends, balance: poolBalance } = await totals(goal.id, goal.owner)
+  const friends = wallet
+    ? await all<{ address: string; amount: number; created_at: number }>("SELECT address, added AS amount, created_at FROM wallet_goal_entries WHERE goal_id = ? AND kind = 'gift' ORDER BY created_at DESC", [goal.id])
+    : poolFriends
+  const balance = wallet ? Math.round((await walletGoalBalance(goal.id)) * UNIT.NIM) : poolBalance
   const addresses = [...new Set([goal.owner, ...friends.map((f) => f.address)])]
   const users = await usersByAddress(addresses)
   const owner = users.get(goal.owner)
@@ -93,16 +100,20 @@ export async function goalPreview(code: string, viewer: User | null) {
     friends: chippedIn.slice(0, 8).map((a) => ({ name: displayName(users.get(a), viewer?.address), avatar: users.get(a)?.avatar ?? 1 })),
     friendCount: chippedIn.length,
     memo: viewer ? memoFor(viewer, goalMemo(goal.id), goal.currency) : null,
+    // Wallet goals: gifts go straight to the owner's wallet, not to Akilii.
+    custody: goal.custody,
+    payTo: wallet ? goal.owner : null,
     minDeposit: MIN_DEPOSIT[goal.currency],
   }
 }
 export type GoalPreview = Awaited<ReturnType<typeof goalPreview>>
 
 /** Record a friend's payment into the goal once it is on chain. */
-export async function recordChipIn(user: User, code: string, hint: string | null, devAmount?: number): Promise<DepositResult> {
+export async function recordChipIn(user: User, code: string, hint: string | null, devAmount?: number): Promise<{ status: DepositResult['status'] }> {
   const goal = await goalByCode(code)
   if (goal.status !== 'open') throw new ApiError('This goal is closed')
   if (sameAddress(goal.owner, user.address)) throw new ApiError('This is your own goal. Add money from the goal page.')
+  if (goal.custody === 'wallet') return recordWalletGift(user, goal, hint, devAmount)
   const result = await verifyDeposit({
     user,
     kind: 'goal',
@@ -149,11 +160,13 @@ export function parsePlan(input: { cadence: unknown; amount: unknown }, currency
 }
 
 /** Where the owner stands this period. Only the owner's own top-ups count toward their plan. */
-export async function planStatus(goal: Pick<GoalRow, 'id' | 'owner' | 'currency' | 'plan_cadence' | 'plan_amount' | 'plan_anchor'>, now = Date.now()) {
+export async function planStatus(goal: Pick<GoalRow, 'id' | 'owner' | 'currency' | 'plan_cadence' | 'plan_amount' | 'plan_anchor' | 'custody'>, now = Date.now()) {
   if (!goal.plan_cadence || !goal.plan_amount || !goal.plan_anchor) return null
   const period = currentPeriod(goal.plan_anchor, goal.plan_cadence, now)
   const row = await one<{ saved: number }>(
-    "SELECT COALESCE(SUM(amount), 0) AS saved FROM deposits WHERE kind = 'goal' AND ref_id = ? AND address = ? AND created_at >= ? AND created_at < ?",
+    goal.custody === 'wallet'
+      ? "SELECT COALESCE(SUM(added), 0) AS saved FROM wallet_goal_entries WHERE goal_id = ? AND address = ? AND kind IN ('stake', 'note') AND created_at >= ? AND created_at < ?"
+      : "SELECT COALESCE(SUM(amount), 0) AS saved FROM deposits WHERE kind = 'goal' AND ref_id = ? AND address = ? AND created_at >= ? AND created_at < ?",
     [goal.id, goal.owner, period.start, period.end],
   )
   const saved = row?.saved ?? 0
@@ -183,7 +196,7 @@ export async function remindPlans(now = Date.now()) {
     const status = await planStatus(goal, now)
     if (!status || status.done || now < status.periodEnd - remindBefore(status.cadence)) continue
     if (goal.target !== null) {
-      const { balance } = await totals(goal.id, goal.owner)
+      const balance = goal.custody === 'wallet' ? Math.round((await walletGoalBalance(goal.id)) * UNIT.NIM) : (await totals(goal.id, goal.owner)).balance
       if (balance >= goal.target) continue
     }
     const left = goal.plan_amount! - Math.round(status.savedThisPeriod * UNIT[goal.currency])

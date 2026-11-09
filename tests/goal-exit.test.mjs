@@ -23,6 +23,7 @@ mock.module('../src/lib/deposits.ts', { namedExports: {
   reconcile: async () => {}, verifyDeposit: async () => { throw new Error('not used') },
   goalMemo: (id) => `cg:${id}`, memoFor: (_u, memo) => memo, isSimulated: (hash) => hash?.startsWith('mock-') ?? false,
 } })
+mock.module('../src/lib/wallet-goals.ts', { namedExports: { walletGoalBalance: async () => 0, walletGoalView: async () => null } })
 mock.module('../src/lib/goal-friends.ts', { namedExports: {
   goalExtras: async () => ({ plan: null, nameOf: () => 'Someone' }), notifyChipIn: async () => {}, parsePlan: () => null,
 } })

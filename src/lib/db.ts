@@ -189,6 +189,18 @@ const SCHEMA = [
     min_amount INTEGER NOT NULL,
     created_at INTEGER NOT NULL
   )`,
+  // Ledger for goals kept in the owner's own wallet (src/lib/wallet-goals.ts). Never pool money.
+  `CREATE TABLE IF NOT EXISTS wallet_goal_entries (
+    id         TEXT PRIMARY KEY,
+    goal_id    TEXT NOT NULL,
+    address    TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    added      INTEGER NOT NULL,
+    staked     INTEGER NOT NULL,
+    tx_hash    TEXT,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS wallet_goal_entries_goal ON wallet_goal_entries (goal_id)`,
   // POL sent to members so they can pay the gas on a USDT transfer.
   `CREATE TABLE IF NOT EXISTS gas_drips (
     id          TEXT PRIMARY KEY,
@@ -222,6 +234,12 @@ const COLUMNS: [string, string, string][] = [
   ['goals', 'plan_cadence', 'TEXT'],
   ['goals', 'plan_amount', 'INTEGER'],
   ['goals', 'plan_anchor', 'INTEGER'],
+  // 'pool' (Akilii holds and stakes it) or 'wallet' (it stays in the owner's wallet).
+  ['goals', 'custody', "TEXT NOT NULL DEFAULT 'pool'"],
+  // Wallet goals being unstaked: how much, since when, and whether it has been retired yet.
+  ['goals', 'exit_amount', 'INTEGER'],
+  ['goals', 'exit_started_at', 'INTEGER'],
+  ['goals', 'exit_retired', 'INTEGER NOT NULL DEFAULT 0'],
 ]
 
 async function addColumns(db: Client) {

@@ -52,7 +52,11 @@ function HowItWorks({ goal }: { goal: GoalPreview }) {
       <h2 className="font-display text-xl font-bold tracking-tight">What happens when you chip in</h2>
       <ol className="mt-3 flex flex-col gap-2.5 text-[15px] leading-snug">
         <li>1. You pick an amount and approve it in your Nimiq Pay wallet.</li>
-        <li>2. It goes into {goal.owner.name}&apos;s {goal.name} savings on Akilii, where it earns staking rewards while it waits.</li>
+        {goal.payTo ? (
+          <li>2. It goes straight to {goal.owner.name}&apos;s own Nimiq Pay wallet, marked for {goal.name}. Akilii never holds it.</li>
+        ) : (
+          <li>2. It goes into {goal.owner.name}&apos;s {goal.name} savings on Akilii, where it earns staking rewards while it waits.</li>
+        )}
         <li>3. {goal.owner.name} sees your name next to it.</li>
       </ol>
       <p className="mt-4 rounded-[var(--radius-inner)] bg-blush px-4 py-3 text-sm text-ink-2">
@@ -105,7 +109,7 @@ function ChipIn({ code, goal: initial }: { code: string; goal: GoalPreview }) {
         if (current.isOwner) return
       }
       if (!current.memo) throw new Error('Sign in to chip in')
-      const ok = await payment.run({ amount: value, currency: current.currency, memo: current.memo, confirmUrl: `/api/chip/${encodeURIComponent(code)}`, extra: { amount: value } })
+      const ok = await payment.run({ amount: value, currency: current.currency, memo: current.memo, to: current.payTo ?? undefined, confirmUrl: `/api/chip/${encodeURIComponent(code)}`, extra: { amount: value } })
       if (ok) setDone(value)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))

@@ -47,9 +47,21 @@ interface Wallet {
   signIn: () => Promise<boolean>
   setMe: (me: Me) => void
   signOut: () => Promise<void>
-  /** Ask Nimiq Pay to pay the pool with `memo` (NIM on Nimiq, USDT on Polygon). Resolves with the wallet's return value. */
-  pay: (input: { amount: number; currency: Currency; memo: string }) => Promise<string>
+  /**
+   * Ask Nimiq Pay to pay the pool with `memo` (NIM on Nimiq, USDT on Polygon). Resolves with the
+   * wallet's return value. `to` pays someone's own wallet instead (NIM only: wallet-goal gifts).
+   */
+  pay: (input: { amount: number; currency: Currency; memo: string; to?: string }) => Promise<string>
+  /** Sign a staking transaction from the user's own wallet (wallet goals). Amounts in luna. */
+  stake: (op: StakeOp) => Promise<string>
 }
+
+export type StakeOp =
+  | { type: 'create'; value: number; delegation: string }
+  | { type: 'add'; value: number }
+  | { type: 'setActive'; value: number }
+  | { type: 'retire'; value: number }
+  | { type: 'remove'; value: number }
 
 const WalletContext = createContext<Wallet | null>(null)
 
@@ -159,16 +171,18 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const pay = useCallback(
-    async ({ amount, currency, memo }: { amount: number; currency: Currency; memo: string }) => {
+    async ({ amount, currency, memo, to }: { amount: number; currency: Currency; memo: string; to?: string }) => {
       if (!nimiq) {
         if (me?.dev) return `mock:${memo}`
         throw new Error('Open Akilii inside Nimiq Pay to pay')
       }
+      if (to && currency !== 'NIM') throw new Error('Gifts to a wallet are in NIM')
       if (currency === 'USDT') return payUsdt({ amount, memo, to: config?.usdtPoolAddress ?? null })
-      if (!config?.poolAddress) throw new Error('Payments are not set up yet')
+      const recipient = to ?? config?.poolAddress
+      if (!recipient) throw new Error('Payments are not set up yet')
       await waitForSync(nimiq)
       try {
-        return await nimiq.sendBasicTransactionWithData({ recipient: config.poolAddress, value: Math.round(amount * UNIT.NIM), data: memo })
+        return await nimiq.sendBasicTransactionWithData({ recipient, value: Math.round(amount * UNIT.NIM), data: memo })
       } catch (err) {
         const e = await describeWalletError(err)
         // Only a refusal or a rejected transaction means nothing was sent. Anything else (Nimiq Pay's
@@ -180,9 +194,35 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     [nimiq, me, config],
   )
 
+  const stake = useCallback(
+    async (op: StakeOp) => {
+      if (!nimiq) {
+        if (me?.dev) return `mock:${op.type}`
+        throw new Error('Open Akilii inside Nimiq Pay to stake')
+      }
+      await waitForSync(nimiq)
+      try {
+        let result: string | { error?: unknown }
+        if (op.type === 'create') result = await nimiq.sendNewStakerTransaction({ delegation: op.delegation, value: op.value })
+        else if (op.type === 'add') result = await nimiq.sendStakeTransaction({ value: op.value })
+        else if (op.type === 'setActive') result = await nimiq.sendSetActiveStakeTransaction({ newActiveBalance: op.value })
+        else if (op.type === 'retire') result = await nimiq.sendRetireStakeTransaction({ retireStake: op.value })
+        else result = await nimiq.sendRemoveStakeTransaction({ value: op.value })
+        // The SDK resolves with an error object rather than throwing on some hosts.
+        if (typeof result !== 'string') throw result
+        return result
+      } catch (err) {
+        const e = await describeWalletError(err)
+        const notSent = e.type === 'PERMISSION_DENIED' || e.type === 'INVALID_TRANSACTION' || e.type === 'UNKNOWN_REQUEST'
+        throw Object.assign(new Error(e.text), { maybeSent: !notSent })
+      }
+    },
+    [nimiq, me],
+  )
+
   return (
     <WalletContext.Provider
-      value={{ earlyExitPolicy: config?.earlyExitPolicy ?? null, phase, me, inNimiqPay: Boolean(nimiq), devWallet: Boolean(config?.devWallet), ngnPer: { NIM: config?.ngnPerNim ?? NGN_PER_NIM, USDT: config?.ngnPerUsdt ?? NGN_PER_USDT }, cadences: config?.cadences ?? [...CADENCES], error, signIn, signOut, setMe, pay }}
+      value={{ earlyExitPolicy: config?.earlyExitPolicy ?? null, phase, me, inNimiqPay: Boolean(nimiq), devWallet: Boolean(config?.devWallet), ngnPer: { NIM: config?.ngnPerNim ?? NGN_PER_NIM, USDT: config?.ngnPerUsdt ?? NGN_PER_USDT }, cadences: config?.cadences ?? [...CADENCES], error, signIn, signOut, setMe, pay, stake }}
     >
       {children}
     </WalletContext.Provider>
@@ -229,7 +269,7 @@ export function usePayment() {
   const [error, setError] = useState<string | null>(null)
 
   const run = useCallback(
-    async (input: { amount: number; currency: Currency; memo: string; confirmUrl: string; extra?: Record<string, unknown>; practice?: boolean }) => {
+    async (input: { amount: number; currency: Currency; memo: string; to?: string; confirmUrl: string; extra?: Record<string, unknown>; practice?: boolean }) => {
       setError(null)
       setState('approving')
       try {
@@ -237,7 +277,7 @@ export function usePayment() {
         let waitMs = 3 * 60_000
         try {
           // Practice circles: no wallet, the server records it as simulated.
-          hint = input.practice ? 'practice' : await pay({ amount: input.amount, currency: input.currency, memo: input.memo })
+          hint = input.practice ? 'practice' : await pay({ amount: input.amount, currency: input.currency, memo: input.memo, to: input.to })
         } catch (err) {
           if (!(err as { maybeSent?: boolean }).maybeSent) throw err
           // No hash to go on: the server finds the payment by its memo and sender instead.

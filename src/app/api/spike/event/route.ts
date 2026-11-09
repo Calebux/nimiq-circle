@@ -3,7 +3,7 @@ import { requireSpike } from '@/lib/security'
 import { appendLog } from '@/lib/nimiq/pool'
 import { getBlockNumber } from '@/lib/nimiq/rpc'
 
-const EVENTS = new Set(['wallet_error', 'evm_check'])
+const EVENTS = new Set(['wallet_error', 'evm_check', 'own_stake'])
 
 /** Client-reported spike events, e.g. errors Nimiq Pay returned before anything hit the chain. */
 export async function POST(request: Request) {

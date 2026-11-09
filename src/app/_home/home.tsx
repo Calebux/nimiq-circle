@@ -1,6 +1,6 @@
 'use client'
 
-import { BellRinging, CalendarDots, Gift, Hourglass, LockSimple, Plus, Sparkle, Ticket, UsersThree, X } from '@phosphor-icons/react/dist/ssr'
+import { BellRinging, CalendarDots, Gift, Hourglass, LockSimple, Plus, Sparkle, Ticket, UsersThree, Wallet, X } from '@phosphor-icons/react/dist/ssr'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -239,7 +239,11 @@ function GoalCard({ g }: { g: GoalSummary }) {
           </div>
         )}
       </div>
-      {g.locked ? (
+      {g.custody === 'wallet' ? (
+        <Chip tone="mint">
+          <Wallet size={12} weight="bold" /> Wallet
+        </Chip>
+      ) : g.locked ? (
         <Chip tone="lilac">
           <LockSimple size={12} weight="bold" /> {shortDate(g.unlockAt!)}
         </Chip>

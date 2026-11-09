@@ -283,6 +283,121 @@ function EvmCheck() {
   )
 }
 
+// --- Check 4 ----------------------------------------------------------------
+
+interface OwnStaker {
+  staker: { balance: number; inactiveBalance: number; retiredBalance: number; delegation?: string } | null
+  minimumStake: number
+  validator: string | null
+  transaction: { hash: string; from: string; to: string; value: number; blockNumber?: number; executionResult?: boolean } | null
+}
+
+/**
+ * Wallet goals: can a mini app stake from the user's own wallet? Reading is free; the button sends
+ * a real staking transaction from your wallet (it stays yours: 1 NIM added, or the 100 NIM minimum
+ * if you are not staking yet). Answers: does Nimiq Pay support it, what comes back, which address stakes.
+ */
+function OwnStakeCheck() {
+  const [address, setAddress] = useState<string | null>(null)
+  const [info, setInfo] = useState<OwnStaker | null>(null)
+  const [returned, setReturned] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function read(addr: string, tx?: string) {
+    const res = await fetch(`/api/spike/staker?address=${encodeURIComponent(addr)}${tx ? `&tx=${tx}` : ''}`, { cache: 'no-store' })
+    const json = await res.json()
+    if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`)
+    setInfo(json as OwnStaker)
+    return json as OwnStaker
+  }
+
+  async function look() {
+    setError(null)
+    setBusy(true)
+    try {
+      const wallet = await connectNimiq()
+      if (!wallet) throw new Error('Open this page inside Nimiq Pay')
+      const [addr] = await wallet.listAccounts()
+      setAddress(addr)
+      await read(addr)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function stake() {
+    if (!address || !info) return
+    setError(null)
+    setBusy(true)
+    const detail: Record<string, unknown> = { address, hadStaker: Boolean(info.staker) }
+    try {
+      const wallet = await connectNimiq()
+      if (!wallet) throw new Error('Open this page inside Nimiq Pay')
+      let result: unknown
+      if (info.staker) result = await wallet.sendStakeTransaction({ value: LUNA })
+      else {
+        if (!info.validator) throw new Error('STAKE_VALIDATOR is not set on the server')
+        result = await wallet.sendNewStakerTransaction({ delegation: info.validator, value: info.minimumStake })
+      }
+      detail.returned = result
+      setReturned(JSON.stringify(result))
+      const hash = typeof result === 'string' ? result : undefined
+      const started = Date.now()
+      while (hash && Date.now() - started < POLL_LIMIT_MS) {
+        const now = await read(address, hash)
+        if (now.transaction?.blockNumber) {
+          detail.transaction = now.transaction
+          detail.stakerAfter = now.staker
+          break
+        }
+        await new Promise((r) => setTimeout(r, POLL_MS))
+      }
+    } catch (err) {
+      const e = await describeWalletError(err)
+      detail.error = e
+      setError(e.text)
+    } finally {
+      post('/api/spike/event', { event: 'own_stake', detail }).catch(() => undefined)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card n={4} title="Stake from your own wallet" question="Can Akilii ask Nimiq Pay to stake from your wallet, and which address ends up staking? Reading sends nothing.">
+      <button className={buttonClass} disabled={busy} onClick={look}>
+        {busy && !info ? 'Reading…' : 'Read my staking'}
+      </button>
+      {info && (
+        <div className="rounded-xl bg-black/5 p-3">
+          <Row label="Wallet">{address}</Row>
+          <Row label="Active stake">{info.staker ? nim(info.staker.balance) : 'not staking'}</Row>
+          <Row label="Inactive / retired">{info.staker ? `${nim(info.staker.inactiveBalance)} / ${nim(info.staker.retiredBalance)}` : '—'}</Row>
+          <Row label="Validator">{info.staker?.delegation ?? info.validator ?? '—'}</Row>
+          <Row label="Min stake">{nim(info.minimumStake)}</Row>
+          {returned && <Row label="Returned">{returned}</Row>}
+          {info.transaction && (
+            <>
+              <Row label="Tx from">{info.transaction.from}</Row>
+              <Row label="Tx to">{info.transaction.to}</Row>
+              <Row label="Tx value">{nim(info.transaction.value)}</Row>
+              <Row label="Block">{info.transaction.blockNumber ? `#${info.transaction.blockNumber} ${info.transaction.executionResult === false ? '✗ failed' : '✓'}` : 'pending'}</Row>
+            </>
+          )}
+        </div>
+      )}
+      {info && (
+        <button className={buttonClass} disabled={busy} onClick={stake}>
+          {busy ? 'Waiting…' : info.staker ? 'Add 1 NIM to my stake' : `Start staking ${nim(info.minimumStake)}`}
+        </button>
+      )}
+      {error && <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+    </Card>
+  )
+}
+
 // --- Page -------------------------------------------------------------------
 
 export function Spike() {
@@ -320,6 +435,7 @@ export function Spike() {
       <ContributeCheck pool={pool} />
       <StakeCheck pool={pool} error={poolError} />
       <EvmCheck />
+      <OwnStakeCheck />
     </main>
   )
 }

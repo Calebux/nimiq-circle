@@ -1,6 +1,6 @@
 'use client'
 
-import { LockSimple, LockSimpleOpen } from '@phosphor-icons/react/dist/ssr'
+import { Bank, LockSimple, LockSimpleOpen, Wallet } from '@phosphor-icons/react/dist/ssr'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
@@ -60,7 +60,10 @@ function Form() {
   const [name, setName] = useState('')
   const [currency, setCurrency] = useState<Currency>('NIM')
   const [target, setTarget] = useState('')
-  const [locked, setLocked] = useState(true)
+  const [custody, setCustody] = useState<'pool' | 'wallet'>('pool')
+  const [lockedChoice, setLocked] = useState(true)
+  // Wallet goals cannot be locked: the owner holds the keys.
+  const locked = custody === 'pool' && lockedChoice
   const [unlockAt, setUnlockAt] = useState(presets[1].at)
   const [cadence, setCadence] = useState<PlanCadence | null>(null)
   const [planAmount, setPlanAmount] = useState('')
@@ -76,7 +79,7 @@ function Form() {
     setCreating(true)
     setError(null)
     try {
-      const { id } = await api<{ id: string }>('/api/goals', { body: { name: name.trim(), currency, target: targetNim || null, unlockAt: locked ? unlockAt : null, plan: cadence ? { cadence, amount: planValue } : null } })
+      const { id } = await api<{ id: string }>('/api/goals', { body: { name: name.trim(), currency, target: targetNim || null, unlockAt: locked ? unlockAt : null, plan: cadence ? { cadence, amount: planValue } : null, custody } })
       router.push(`/g/${id}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -102,8 +105,8 @@ function Form() {
           </p>
         )}
         <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/80 px-3 py-1.5 text-sm font-semibold">
-          {locked ? <LockSimple size={15} weight="bold" /> : <LockSimpleOpen size={15} weight="bold" />}
-          {locked ? `Locked until ${shortDate(unlockAt)} (${days} days)` : 'Take it out any time'}
+          {custody === 'wallet' ? <Wallet size={15} weight="bold" /> : locked ? <LockSimple size={15} weight="bold" /> : <LockSimpleOpen size={15} weight="bold" />}
+          {custody === 'wallet' ? 'Stays in your own wallet' : locked ? `Locked until ${shortDate(unlockAt)} (${days} days)` : 'Take it out any time'}
         </p>
       </section>
 
@@ -131,16 +134,49 @@ function Form() {
         </section>
 
         <section className="flex flex-col gap-2">
-          <p className="font-display text-lg font-bold tracking-tight">Save in</p>
-          <CurrencyPicker
-            value={currency}
-            onChange={(c) => {
-              setCurrency(c)
-              setTarget('')
-              setPlanAmount('')
-            }}
-          />
+          <p className="font-display text-lg font-bold tracking-tight">Where should it live?</p>
+          <div className="grid grid-cols-2 gap-2">
+            {(
+              [
+                { id: 'wallet', icon: Wallet, title: 'In my wallet', body: 'Staked by your own wallet. Akilii never holds it. No lock. NIM only.' },
+                { id: 'pool', icon: Bank, title: 'With Akilii', body: 'Akilii stakes it in its pool. You can lock it, in NIM or USDT.' },
+              ] as const
+            ).map(({ id, icon: Icon, title, body }) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={custody === id}
+                onClick={() => {
+                  setCustody(id)
+                  if (id === 'wallet' && currency !== 'NIM') {
+                    setCurrency('NIM')
+                    setTarget('')
+                    setPlanAmount('')
+                  }
+                }}
+                className={`press rounded-[var(--radius-inner)] p-4 text-left transition-colors duration-150 ${custody === id ? 'bg-ink text-white' : 'bg-white shadow-soft'}`}
+              >
+                <Icon size={22} weight="bold" />
+                <p className="mt-2 font-bold">{title}</p>
+                <p className={`mt-0.5 text-sm leading-snug ${custody === id ? 'text-white/75' : 'text-ink-2'}`}>{body}</p>
+              </button>
+            ))}
+          </div>
         </section>
+
+        {custody === 'pool' && (
+          <section className="flex flex-col gap-2">
+            <p className="font-display text-lg font-bold tracking-tight">Save in</p>
+            <CurrencyPicker
+              value={currency}
+              onChange={(c) => {
+                setCurrency(c)
+                setTarget('')
+                setPlanAmount('')
+              }}
+            />
+          </section>
+        )}
 
         <section className="flex flex-col gap-2">
           <label htmlFor="target" className="font-display text-lg font-bold tracking-tight">
@@ -208,6 +244,7 @@ function Form() {
           )}
         </section>
 
+        {custody === 'pool' && (
         <section className="flex flex-col gap-2">
           <p className="font-display text-lg font-bold tracking-tight">Can you take it out early?</p>
           <div className="grid grid-cols-2 gap-2">
@@ -231,6 +268,7 @@ function Form() {
             ))}
           </div>
         </section>
+        )}
 
         {locked && (
           <section className="flex flex-col gap-2">
