@@ -1,10 +1,17 @@
 # Akilii
 
-**The perfect money app.**
+**The all-in-one savings app.**
 
 Domain: [akilii.xyz](https://akilii.xyz).
 
-A savings circle (ajo / tanda / susu / chama) for Nimiq Pay: members contribute NIM or USDT each round, one member takes the pot in turn, idle NIM is staked, and payouts can be cashed out in naira to any Nigerian bank. Next: a naira on-ramp, then payouts in more currencies.
+Every way to save, in one Nimiq Pay mini app:
+
+- **Circles** (ajo / tanda / susu / chama): members contribute NIM or USDT each round and one member takes the pot in turn.
+- **Goals with Akilii**: flexible or locked until a date; idle NIM is staked in the pool.
+- **Goals in your wallet**: staked by the owner's own wallet through the SDK; Akilii only keeps a ledger and never holds the NIM.
+- **Friends chip in** to any goal by link, and **weekly or monthly plans** with in-app reminders.
+
+Payouts can be cashed out in naira to any Nigerian bank. Next: a naira on-ramp, then payouts in more currencies.
 
 ## App
 
@@ -13,10 +20,13 @@ A savings circle (ajo / tanda / susu / chama) for Nimiq Pay: members contribute 
 | `/` | Your circles and goals (sign in with Nimiq Pay) |
 | `/new`, `/c/[id]`, `/c/[id]/invite`, `/c/[id]/payout` | Create a circle, chip in, invite, take your pot (keep or cash out) |
 | `/join/[code]` | Invite link landing |
-| `/goals/new`, `/g/[id]` | Personal savings goal, flexible or locked until a date |
+| `/goals/new`, `/g/[id]` | Personal savings goal: with Akilii (flexible or locked until a date) or in your own wallet |
+| `/chip/[code]` | A friend chips in to a goal by link |
 | `/spike` | The pre-build checks below |
 
 **How money moves.** One pool wallet holds every circle and goal. Members pay it from Nimiq Pay with a memo (`cc:<circle>:<round>`, `cg:<goal>`); the server only counts a deposit once it is on chain, from the signed-in wallet, with the right memo and amount. Payouts and withdrawals are signed by the pool key on the server. Locked goals are enforced server-side. Optional early withdrawal requires a fee review and explicit confirmation, pays the full balance less the fee, and closes the plan. Set `GOAL_BREAK_FEE_BPS` (100 = 1%) and `GOAL_BREAK_FEE_BASIS` (`principal` or `total`) to enable it; unset means disabled. Fees remain operator-owned in the pool and are excluded from rewards. NIM wallet exits with insufficient liquidity reserve funds for the staking worker for 72 hours; the member must retry and accept a fresh quote when funds are available. Automatic unstaking requires the existing `AUTO_STAKE=on` worker configuration, otherwise the operator must supply liquidity. Idle NIM is staked; yield = what the pool really holds on chain minus what it owes minus `POOL_FLOAT_NIM`, shared by balance.
+
+**Goals in your wallet.** These never touch the pool (`src/lib/wallet-goals.ts`, own `wallet_goal_entries` ledger). Saving asks Nimiq Pay to stake from the owner's wallet: add to an existing stake, or create one with `STAKE_VALIDATOR` once the goal reaches the minimum stake; below it the saving is noted as set aside. Friends' gifts are paid straight to the owner with the goal memo and verified on chain. Taking it out is set active stake, wait for release, retire, remove, each signed by the owner. No lock, no fee: the owner holds the keys.
 
 **Cash-out (float model).** The provider only takes USDT, so the app sits in the middle. The cash-out sheet locks a quote for 90 s: NIM → USDT at the CoinGecko price minus `TREASURY_SPREAD_BPS`, then USDT → NGN at the provider's rate. On confirm, the treasury buys the member's NIM where it sits in the pool and the provider pays the bank from our prefunded USDT float, so no swap is in the member's path. Converting held NIM back to USDT happens in batches. Guards: quote expiry, one use per quote, owner and amount checks, per-payout and daily caps, a minimum, and "float too low" (the pot stays claimable). Every movement is a row in `treasury_ledger`.
 
@@ -32,13 +42,14 @@ npm run treasury -- rebalance --to <exchange address>   # swap held NIM back to 
 
 ## Spike
 
-Three checks that had to pass before the real build.
+Checks that had to pass before building on a Nimiq Pay feature.
 
 | # | Check | Answers |
 |---|-------|---------|
 | 1 | Contribute from Nimiq Pay | What `sendBasicTransactionWithData` returns (hash or serialized tx) and how fast a memo-tagged payment confirms |
 | 2 | Stake the pool | How long NIM is locked between `unstake` and being payable again |
 | 3 | Cash out | Whether the off-ramp provider can resolve an account, quote NIM → NGN and pay out, and how fast |
+| 4 | Stake from your own wallet | Whether a mini app can ask Nimiq Pay to stake from the user's wallet, and which address stakes (wallet goals) |
 
 Why NIM and not USDT/Aave: `@nimiq/mini-app-sdk` (0.2.4) exposes NIM transfers, NIM staking and Lightning payments only, with no EVM/Polygon calls.
 
