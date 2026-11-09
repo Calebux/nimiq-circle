@@ -127,6 +127,8 @@ const NOTICE_ICON = {
   short_pot: Gift,
   late_money: Gift,
   missed: Hourglass,
+  plan_due: CalendarDots,
+  chip_in: Gift,
 } as const
 
 interface Notice {
@@ -149,7 +151,7 @@ function Inbox() {
     <section className="flex flex-col gap-2">
       {notices.slice(0, 3).map((n) => {
         const Icon = NOTICE_ICON[n.kind] ?? BellRinging
-        const warm = n.kind === 'pot_ready' || n.kind === 'short_pot' || n.kind === 'late_money'
+        const warm = n.kind === 'pot_ready' || n.kind === 'short_pot' || n.kind === 'late_money' || n.kind === 'chip_in'
         return (
           <div key={n.id} className={`pop-in flex items-start gap-3 rounded-card p-4 shadow-soft ${warm ? 'bg-sun' : 'bg-white'}`}>
             <span className={`grid size-9 shrink-0 place-items-center rounded-full ${warm ? 'bg-white/70 text-coral' : 'bg-coral-soft text-coral-ink'}`}>

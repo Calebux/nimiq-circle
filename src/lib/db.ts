@@ -192,6 +192,12 @@ const COLUMNS: [string, string, string][] = [
   // Practice circles: you plus two bot members, every payment simulated (src/lib/circles.ts).
   ['circles', 'practice', 'INTEGER NOT NULL DEFAULT 0'],
   ['users', 'bot', 'INTEGER NOT NULL DEFAULT 0'],
+  // Friends chip in to a goal by link (src/lib/goal-friends.ts). Made on first share.
+  ['goals', 'invite_code', 'TEXT'],
+  // Saving plan: amount (smallest unit) every week or month, counted from plan_anchor.
+  ['goals', 'plan_cadence', 'TEXT'],
+  ['goals', 'plan_amount', 'INTEGER'],
+  ['goals', 'plan_anchor', 'INTEGER'],
 ]
 
 async function addColumns(db: Client) {

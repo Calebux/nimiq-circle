@@ -1,6 +1,7 @@
 import 'server-only'
 import { activeCircleIds, advance, remind, settleCashingPayouts } from './circles'
 import { syncEvmPending } from './deposits'
+import { remindPlans } from './goal-friends'
 import { syncGoals } from './goals'
 import { manageStake } from './staking'
 
@@ -33,6 +34,7 @@ export async function tick() {
   })
   await step('cashouts', settleCashingPayouts)
   await step('goals', syncGoals)
+  await step('plans', () => remindPlans())
   await step('stake', manageStake)
   return results
 }

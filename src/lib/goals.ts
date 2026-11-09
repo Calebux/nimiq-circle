@@ -7,6 +7,7 @@ import { goalMemo, isSimulated, memoFor, reconcile, verifyDeposit, type DepositR
 import { ApiError } from './errors'
 import { sameAddress } from './nimiq/address'
 import { yieldShare } from './yield'
+import { goalExtras, notifyChipIn, parsePlan } from './goal-friends'
 
 /** Smallest deposit worth a transaction, in the goal's smallest unit. */
 const minDeposit = (currency: Currency) => Math.round(MIN_DEPOSIT[currency] * UNIT[currency])
@@ -42,32 +43,41 @@ async function ownGoal(user: User, id: string): Promise<GoalRow> {
   return goal
 }
 
-export async function createGoal(user: User, input: { name: string; target: number | null; unlockAt: number | null; currency: Currency }) {
+export async function createGoal(user: User, input: { name: string; target: number | null; unlockAt: number | null; currency: Currency; plan?: { cadence: unknown; amount: unknown } }) {
   const name = input.name.trim().slice(0, 32)
   if (!name) throw new ApiError('Give your goal a name')
   const { max } = LIMITS[input.currency]
   if (input.target !== null && (!Number.isInteger(input.target) || input.target < 1 || input.target > max * 100)) throw new ApiError(`Targets are whole ${input.currency}`)
   if (input.unlockAt !== null && input.unlockAt < Date.now() + 86_400_000) throw new ApiError('Lock it for at least a day')
+  const plan = input.plan ? parsePlan(input.plan, input.currency) : null
   const id = newId()
-  await run("INSERT INTO goals (id, owner, name, target, unlock_at, status, currency, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?, ?)", [
+  const now = Date.now()
+  await run("INSERT INTO goals (id, owner, name, target, unlock_at, status, currency, created_at, plan_cadence, plan_amount, plan_anchor) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)", [
     id,
     user.address,
     name,
     input.target === null ? null : input.target * UNIT[input.currency],
     input.unlockAt,
     input.currency,
-    Date.now(),
+    now,
+    plan?.cadence ?? null,
+    plan?.amount ?? null,
+    plan ? now : null,
   ])
   return id
 }
 
-/** Credit owner payments tagged for this goal that the app never reported. */
+/** Credit payments tagged for this goal that the app never reported: the owner's, or a friend's chip-in. */
 async function reconcileGoal(goal: GoalRow) {
   // USDT goals are reconciled from reported transfers instead (syncEvmPending).
   if (goal.currency !== 'NIM') return
-  await reconcile('goal', goal.id, (_memo, payer, tx) =>
-    sameAddress(payer, goal.owner) && tx.value >= minDeposit('NIM') ? { round: null, address: goal.owner } : null,
-  ).catch((err) => console.error('reconcile goal', goal.id, err))
+  const friends: { hash: string; payer: string; value: number }[] = []
+  await reconcile('goal', goal.id, (_memo, payer, tx) => {
+    if (tx.value < minDeposit('NIM')) return null
+    if (!sameAddress(payer, goal.owner)) friends.push({ hash: tx.hash, payer, value: tx.value })
+    return { round: null, address: payer }
+  }).catch((err) => console.error('reconcile goal', goal.id, err))
+  for (const f of friends) await notifyChipIn(goal, f.hash, f.payer, f.value).catch(() => undefined)
 }
 
 async function balanceOf(goalId: string) {
@@ -167,11 +177,12 @@ export async function goalView(user: User, goalId: string) {
   await reconcileGoal(goal)
   const [{ balance, simulated }, deposits, withdrawals] = await Promise.all([
     balanceOf(goalId),
-    all<{ tx_hash: string; amount: number; created_at: number }>("SELECT tx_hash, amount, created_at FROM deposits WHERE kind = 'goal' AND ref_id = ? ORDER BY created_at DESC", [goalId]),
+    all<{ tx_hash: string; address: string; amount: number; created_at: number }>("SELECT tx_hash, address, amount, created_at FROM deposits WHERE kind = 'goal' AND ref_id = ? ORDER BY created_at DESC", [goalId]),
     all<WithdrawalRow>('SELECT * FROM withdrawals WHERE goal_id = ? ORDER BY created_at DESC', [goalId]),
   ])
   const earned = await yieldShare(balance, simulated, goal.currency)
   const unit = UNIT[goal.currency]
+  const { plan, nameOf } = await goalExtras(goal.id, deposits.filter((d) => !sameAddress(d.address, goal.owner)).map((d) => d.address))
   return {
     id: goal.id,
     name: goal.name,
@@ -185,7 +196,8 @@ export async function goalView(user: User, goalId: string) {
     earned: earned / unit,
     memo: memoFor(user, goalMemo(goal.id), goal.currency),
     minDeposit: MIN_DEPOSIT[goal.currency],
-    deposits: deposits.map((d) => ({ amount: d.amount / unit, at: d.created_at, simulated: isSimulated(d.tx_hash) })),
+    deposits: deposits.map((d) => ({ amount: d.amount / unit, at: d.created_at, simulated: isSimulated(d.tx_hash), from: sameAddress(d.address, goal.owner) ? null : nameOf(d.address) })),
+    plan,
     withdrawals: await Promise.all(withdrawals.map(async (w) => publicWithdrawal(await settle(w), goal.currency))),
   }
 }

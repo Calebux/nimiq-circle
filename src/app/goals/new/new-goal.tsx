@@ -9,6 +9,7 @@ import { SignedIn } from '@/components/gate'
 import { BackLink, BottomBar, PrimaryButton, Screen, nim, shortDate } from '@/components/ui'
 import { Ngn, api } from '@/components/wallet'
 import { PRESETS, type Currency } from '@/lib/currency'
+import type { PlanCadence } from '@/lib/goal-plan'
 
 const IDEAS = ['Rent', 'Detty December', 'School fees', 'Emergency fund', 'New phone', 'Japa']
 const DAY = 86_400_000
@@ -60,17 +61,21 @@ function Form() {
   const [target, setTarget] = useState('')
   const [locked, setLocked] = useState(true)
   const [unlockAt, setUnlockAt] = useState(presets[1].at)
+  const [cadence, setCadence] = useState<PlanCadence | null>(null)
+  const [planAmount, setPlanAmount] = useState('')
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const targetNim = Number(target) || 0
+  const planValue = Number(planAmount) || 0
+  const per = cadence === 'monthly' ? 'month' : 'week'
   const days = Math.ceil((unlockAt - now) / DAY)
 
   async function create() {
     setCreating(true)
     setError(null)
     try {
-      const { id } = await api<{ id: string }>('/api/goals', { body: { name: name.trim(), currency, target: targetNim || null, unlockAt: locked ? unlockAt : null } })
+      const { id } = await api<{ id: string }>('/api/goals', { body: { name: name.trim(), currency, target: targetNim || null, unlockAt: locked ? unlockAt : null, plan: cadence ? { cadence, amount: planValue } : null } })
       router.push(`/g/${id}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -131,6 +136,7 @@ function Form() {
             onChange={(c) => {
               setCurrency(c)
               setTarget('')
+              setPlanAmount('')
             }}
           />
         </section>
@@ -157,6 +163,48 @@ function Form() {
               </Pill>
             ))}
           </div>
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <p className="font-display text-lg font-bold tracking-tight">
+            Saving plan <span className="font-sans text-sm font-normal text-ink-2">(optional)</span>
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {([null, 'weekly', 'monthly'] as const).map((c) => (
+              <Pill
+                key={c ?? 'none'}
+                selected={cadence === c}
+                onClick={() => {
+                  setCadence(c)
+                  if (c && !planAmount) setPlanAmount(String(PRESETS[currency].deposit[1]))
+                }}
+              >
+                {c === null ? 'No plan' : c === 'weekly' ? 'Every week' : 'Every month'}
+              </Pill>
+            ))}
+          </div>
+          {cadence && (
+            <>
+              <label htmlFor="plan-amount" className="sr-only">
+                Amount each {per}
+              </label>
+              <div className="flex h-16 items-center gap-2 rounded-[var(--radius-inner)] bg-white px-4 shadow-soft focus-within:ring-2 focus-within:ring-coral">
+                <input
+                  id="plan-amount"
+                  inputMode="numeric"
+                  value={planAmount}
+                  placeholder="0"
+                  onChange={(e) => setPlanAmount(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                  className="min-w-0 flex-1 bg-transparent font-display text-3xl font-extrabold tabular-nums outline-none placeholder:text-ink-2/40"
+                />
+                <span className="font-semibold text-ink-2">{currency} a {per}</span>
+              </div>
+              <p className="text-sm text-ink-2">
+                We remind you in Akilii when it is due.
+                {targetNim > 0 && planValue > 0 ? ` About ${Math.ceil(targetNim / planValue)} ${per}s to reach ${nim(targetNim)} ${currency}.` : ''}
+              </p>
+            </>
+          )}
         </section>
 
         <section className="flex flex-col gap-2">
@@ -211,7 +259,7 @@ function Form() {
       {error && <p className="mt-6 rounded-[var(--radius-inner)] bg-coral-soft px-4 py-3 text-sm text-coral-ink">{error}</p>}
 
       <BottomBar>
-        <PrimaryButton onClick={create} disabled={!name.trim() || creating}>
+        <PrimaryButton onClick={create} disabled={!name.trim() || creating || (cadence !== null && planValue < 1)}>
           {creating ? 'Creating…' : name.trim() ? 'Start saving' : 'Name your goal'}
         </PrimaryButton>
       </BottomBar>

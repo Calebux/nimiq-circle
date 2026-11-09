@@ -12,6 +12,7 @@ export async function POST(request: Request) {
       currency: asCurrency(b.currency),
       target: b.target === null || b.target === undefined || b.target === '' ? null : Number(b.target),
       unlockAt: typeof b.unlockAt === 'number' ? b.unlockAt : null,
+      plan: b.plan && typeof b.plan === 'object' ? (b.plan as { cadence: unknown; amount: unknown }) : undefined,
     })
     return Response.json({ id })
   } catch (err) {

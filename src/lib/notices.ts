@@ -3,7 +3,7 @@ import type { User } from './auth'
 import { all, newId, run } from './db'
 import { formatAddress } from './nimiq/address'
 
-export type NoticeKind = 'due_soon' | 'late' | 'nudge' | 'pot_ready' | 'missed' | 'late_money' | 'short_pot'
+export type NoticeKind = 'due_soon' | 'late' | 'nudge' | 'pot_ready' | 'missed' | 'late_money' | 'short_pot' | 'plan_due' | 'chip_in'
 
 /**
  * Drop a notice in someone's in-app inbox. Mini apps cannot push to the phone, so this is what
