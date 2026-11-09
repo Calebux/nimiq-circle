@@ -37,9 +37,9 @@ const db = createClient({ url: url.startsWith('file:') ? `file:${path.resolve(RO
 async function owed() {
   const { rows } = await db.execute(`SELECT
      (SELECT COALESCE(SUM(d.amount), 0) FROM deposits d JOIN users u ON u.address = d.address WHERE u.dev = 0 AND d.tx_hash NOT LIKE 'mock-%' AND d.currency = 'USDT')
-   - (SELECT COALESCE(SUM(p.pot + p.bonus), 0) FROM payouts p JOIN users u ON u.address = p.address JOIN circles c ON c.id = p.circle_id
+   - (SELECT COALESCE(SUM(p.pot), 0) FROM payouts p JOIN users u ON u.address = p.address JOIN circles c ON c.id = p.circle_id
        WHERE u.dev = 0 AND p.status IN ('sent', 'cashing', 'cashed') AND c.currency = 'USDT')
-   - (SELECT COALESCE(SUM(w.amount + w.bonus), 0) FROM withdrawals w JOIN users u ON u.address = w.address JOIN goals g ON g.id = w.goal_id
+   - (SELECT COALESCE(SUM(w.amount), 0) FROM withdrawals w JOIN users u ON u.address = w.address JOIN goals g ON g.id = w.goal_id
        WHERE u.dev = 0 AND w.status IN ('sent', 'cashing', 'cashed') AND g.currency = 'USDT')
    AS owed`)
   return BigInt(Number(rows[0].owed))

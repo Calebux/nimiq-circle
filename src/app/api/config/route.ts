@@ -1,3 +1,4 @@
+import { exitFeePolicy } from '@/lib/goal-exit-policy'
 import { cadences } from '@/lib/circles'
 import { serverConfig } from '@/lib/env'
 import { evmPoolAddress } from '@/lib/evm/polygon'
@@ -16,5 +17,5 @@ export async function GET() {
   } catch {
     // Estimates fall back to the client constant; cash-out still gets a real quote.
   }
-  return Response.json({ poolAddress: nim.poolAddress, usdtPoolAddress: evmPoolAddress(), network: nim.network, devWallet, ngnPerNim, ngnPerUsdt, cadences: cadences() })
+  return Response.json({ poolAddress: nim.poolAddress, usdtPoolAddress: evmPoolAddress(), network: nim.network, devWallet, ngnPerNim, ngnPerUsdt, cadences: cadences(), earlyExitPolicy: exitFeePolicy() })
 }

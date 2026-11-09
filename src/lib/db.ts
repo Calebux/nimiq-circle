@@ -127,6 +127,25 @@ const SCHEMA = [
     provider_id TEXT,
     created_at  INTEGER NOT NULL
   )`,
+  // Explicit, short-lived consent to a server-calculated early exit.
+  `CREATE TABLE IF NOT EXISTS goal_exit_quotes (
+    id TEXT PRIMARY KEY,
+    goal_id TEXT NOT NULL,
+    address TEXT NOT NULL,
+    principal INTEGER NOT NULL,
+    bonus INTEGER NOT NULL,
+    fee INTEGER NOT NULL,
+    fee_bps INTEGER NOT NULL,
+    fee_basis TEXT NOT NULL,
+    unlock_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS goal_exit_liquidity (
+    goal_id TEXT PRIMARY KEY,
+    amount INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+  )`,
   // A locked cash-out price: NIM -> USDT (market minus spread) -> NGN (provider). Used once.
   `CREATE TABLE IF NOT EXISTS quotes (
     id           TEXT PRIMARY KEY,
@@ -192,6 +211,11 @@ const COLUMNS: [string, string, string][] = [
   // Practice circles: you plus two bot members, every payment simulated (src/lib/circles.ts).
   ['circles', 'practice', 'INTEGER NOT NULL DEFAULT 0'],
   ['users', 'bot', 'INTEGER NOT NULL DEFAULT 0'],
+  ['withdrawals', 'fee', 'INTEGER NOT NULL DEFAULT 0'],
+  ['withdrawals', 'fee_bps', 'INTEGER NOT NULL DEFAULT 0'],
+  ['withdrawals', 'fee_basis', 'TEXT'],
+  ['withdrawals', 'early_exit', 'INTEGER NOT NULL DEFAULT 0'],
+  ['withdrawals', 'exit_quote_id', 'TEXT'],
   // Friends chip in to a goal by link (src/lib/goal-friends.ts). Made on first share.
   ['goals', 'invite_code', 'TEXT'],
   // Saving plan: amount (smallest unit) every week or month, counted from plan_anchor.

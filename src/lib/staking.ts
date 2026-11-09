@@ -30,7 +30,7 @@ const REAL = (kind: string, ref: string) => `EXISTS (SELECT 1 FROM deposits d WH
 /** NIM that must be spendable within the horizon, in luna. */
 export async function liquidNeeds() {
   const soon = Date.now() + HORIZON
-  const row = await one<{ claimable: number; rounds: number; flexible: number; unlocking: number }>(
+  const row = await one<{ claimable: number; rounds: number; flexible: number; unlocking: number; earlyExits: number }>(
     `SELECT
       (SELECT COALESCE(SUM(pot + bonus), 0) FROM payouts p
         WHERE p.status IN ('claimable', 'sending') AND ${REAL('circle', 'p.circle_id')}) AS claimable,
@@ -41,12 +41,14 @@ export async function liquidNeeds() {
       - (SELECT COALESCE(SUM(w.amount), 0) FROM withdrawals w JOIN goals g ON g.id = w.goal_id
         WHERE g.unlock_at IS NULL AND g.currency = 'NIM' AND COALESCE(w.tx_hash, '') NOT LIKE 'mock-%') AS flexible,
       (SELECT COALESCE(SUM(d.amount), 0) FROM deposits d JOIN goals g ON g.id = d.ref_id
-        WHERE d.kind = 'goal' AND g.status = 'open' AND g.unlock_at IS NOT NULL AND g.unlock_at <= ? AND d.tx_hash NOT LIKE 'mock-%' AND d.currency = 'NIM') AS unlocking`,
-    [soon],
+        WHERE d.kind = 'goal' AND g.status = 'open' AND g.unlock_at IS NOT NULL AND g.unlock_at <= ? AND d.tx_hash NOT LIKE 'mock-%' AND d.currency = 'NIM') AS unlocking,
+      (SELECT COALESCE(SUM(r.amount), 0) FROM goal_exit_liquidity r JOIN goals g ON g.id = r.goal_id
+        WHERE g.status = 'open' AND g.currency = 'NIM' AND g.unlock_at > ? AND r.expires_at > ?) AS earlyExits`,
+    [soon, soon, Date.now()],
   )
   // Current-round money only has to wait if the round can close soon. (With INSTANT_PAYOUTS it
   // can close the moment the last person pays, so it always stays liquid.)
-  const parts = { claimable: row?.claimable ?? 0, rounds: row?.rounds ?? 0, flexible: Math.max(0, row?.flexible ?? 0), unlocking: row?.unlocking ?? 0, buffer: buffer() }
+  const parts = { claimable: row?.claimable ?? 0, rounds: row?.rounds ?? 0, flexible: Math.max(0, row?.flexible ?? 0), unlocking: row?.unlocking ?? 0, earlyExits: row?.earlyExits ?? 0, buffer: buffer() }
   return { ...parts, total: Object.values(parts).reduce((a, b) => a + b, 0) }
 }
 

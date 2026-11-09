@@ -12,7 +12,8 @@
     "tunnel": "cloudflared tunnel --no-autoupdate --protocol http2 --url http://localhost:3300",
     "treasury": "node --env-file-if-exists=.env.local scripts/treasury.mjs",
     "evm": "node --env-file-if-exists=.env.local scripts/evm.mjs",
-    "keys": "node --env-file-if-exists=.env.local scripts/keys.mjs"
+    "keys": "node --env-file-if-exists=.env.local scripts/keys.mjs",
+    "test": "node --conditions=react-server --experimental-test-module-mocks --import ./tests/register.mjs --test tests/*.test.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",

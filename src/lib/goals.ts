@@ -6,7 +6,10 @@ import { bankStatus, deliver, type BankDetails, type Method } from './delivery'
 import { goalMemo, isSimulated, memoFor, reconcile, verifyDeposit, type DepositResult } from './deposits'
 import { ApiError } from './errors'
 import { sameAddress } from './nimiq/address'
-import { yieldShare } from './yield'
+import { invalidateYield, yieldShare } from './yield'
+import { exitAmounts, exitFeePolicy, type ExitFeeBasis } from './goal-exit-policy'
+import { serverConfig } from './env'
+import { getBalance } from './nimiq/rpc'
 import { goalExtras, notifyChipIn, parsePlan } from './goal-friends'
 
 /** Smallest deposit worth a transaction, in the goal's smallest unit. */
@@ -28,6 +31,10 @@ interface WithdrawalRow {
   goal_id: string
   amount: number
   bonus: number
+  fee: number
+  fee_bps: number
+  fee_basis: ExitFeeBasis | null
+  early_exit: number
   status: 'sending' | 'sent' | 'cashing' | 'cashed'
   method: Method
   tx_hash: string | null
@@ -108,34 +115,97 @@ export async function recordGoalDeposit(user: User, goalId: string, hint: string
   })
 }
 
-/** Locked goals refuse until their date; flexible goals pay out any time. Always withdraws everything. */
-export async function withdrawGoal(user: User, goalId: string, method: Method, bank?: BankDetails, evmAddress?: string) {
+interface ExitQuoteRow {
+  id: string
+  goal_id: string
+  address: string
+  principal: number
+  bonus: number
+  fee: number
+  fee_bps: number
+  fee_basis: ExitFeeBasis
+  unlock_at: number
+  expires_at: number
+}
+
+/** Quotes are bound to the owner, goal, balance and lock date. Creating one never moves money. */
+export async function quoteGoalExit(user: User, goalId: string) {
   const goal = await ownGoal(user, goalId)
+  const policy = exitFeePolicy()
+  if (!policy) throw new ApiError('Breaking a lock is not available yet', 403)
+  if (goal.status !== 'open' || !goal.unlock_at || goal.unlock_at <= Date.now()) throw new ApiError('This goal is no longer locked. Refresh to withdraw without a break fee.', 409)
   await reconcileGoal(goal)
-  if (goal.unlock_at && Date.now() < goal.unlock_at) throw new ApiError(`Locked until ${new Date(goal.unlock_at).toDateString()}`, 403)
   const { balance, simulated } = await balanceOf(goalId)
   if (balance <= 0) throw new ApiError('Nothing to withdraw yet')
   const bonus = await yieldShare(balance, simulated, goal.currency)
+  const amounts = exitAmounts(balance, bonus, policy)
+  const id = newId(24)
+  const expiresAt = Math.min(Date.now() + 10 * 60_000, goal.unlock_at)
+  await run('DELETE FROM goal_exit_quotes WHERE expires_at < ?', [Date.now()])
+  await run(`INSERT INTO goal_exit_quotes (id, goal_id, address, principal, bonus, fee, fee_bps, fee_basis, unlock_at, expires_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, goalId, user.address, balance, bonus, amounts.fee, policy.bps, policy.basis, goal.unlock_at, expiresAt, Date.now()])
+  const unit = UNIT[goal.currency]
+  return { id, principal: balance / unit, bonus: bonus / unit, fee: amounts.fee / unit, net: amounts.net / unit, feeBps: policy.bps, feeBasis: policy.basis, currency: goal.currency, expiresAt }
+}
+export type GoalExitQuote = Awaited<ReturnType<typeof quoteGoalExit>>
+
+/** Flexible/mature goals are free; an early exit requires explicit acceptance of a server quote. */
+export async function withdrawGoal(user: User, goalId: string, method: Method, bank?: BankDetails, evmAddress?: string, earlyExitQuoteId?: string) {
+  const goal = await ownGoal(user, goalId)
+  if (goal.status !== 'open') throw new ApiError('This goal is closed', 409)
+  await reconcileGoal(goal)
+  const locked = Boolean(goal.unlock_at && Date.now() < goal.unlock_at)
+  if (locked && (!earlyExitQuoteId || !exitFeePolicy())) throw new ApiError('Review and accept the break fee before withdrawing early', 403)
+  if (!locked && earlyExitQuoteId) throw new ApiError('Your goal has unlocked. Refresh to withdraw without a break fee.', 409)
+  const { balance, simulated } = await balanceOf(goalId)
+  if (balance <= 0) throw new ApiError('Nothing to withdraw yet')
+  let bonus = await yieldShare(balance, simulated, goal.currency)
+  let quote: ExitQuoteRow | null = null
+  if (locked) {
+    quote = await one<ExitQuoteRow>('SELECT * FROM goal_exit_quotes WHERE id = ?', [earlyExitQuoteId!])
+    if (!quote || quote.goal_id !== goalId || !sameAddress(quote.address, user.address) || quote.principal !== balance || quote.unlock_at !== goal.unlock_at || quote.expires_at <= Date.now() || quote.bonus > bonus) {
+      throw new ApiError('Your balance or quote has changed. Review the break fee again.', 409)
+    }
+    bonus = quote.bonus
+  }
+  const fee = quote?.fee ?? 0
+  const net = balance + bonus - fee
+  // Locked NIM may be staked. Reserve liquidity for the worker, without charging or closing
+  // the goal. The owner returns to accept a fresh quote when funds are available.
+  if (locked && goal.currency === 'NIM' && method === 'wallet' && !user.dev && !simulated) {
+    const pool = serverConfig().nim.poolAddress
+    if (!pool) throw new ApiError('Withdrawals are temporarily unavailable', 503)
+    if (await getBalance(pool) < net) {
+      await run(`INSERT INTO goal_exit_liquidity (goal_id, amount, expires_at) VALUES (?, ?, ?)
+        ON CONFLICT(goal_id) DO UPDATE SET amount = excluded.amount, expires_at = excluded.expires_at`, [goalId, net, Date.now() + 72 * 3_600_000])
+      throw new ApiError('Your savings need available NIM before they can be sent. No fee was charged. Staked funds may take 12–24 hours to become available; try again later.', 409)
+    }
+  }
 
   const id = newId()
-  // Record before sending, in one statement that re-checks the balance: two taps at once
-  // cannot both see the full balance, so only one of them ever pays.
+  // The balance and quote are checked in the same write that claims the funds.
   const claimed = await run(
-    `INSERT INTO withdrawals (id, goal_id, address, amount, bonus, status, method, created_at)
-     SELECT ?1, ?2, ?3, ?4, ?5, 'sending', ?6, ?7
+    `INSERT INTO withdrawals (id, goal_id, address, amount, bonus, status, method, created_at, fee, fee_bps, fee_basis, early_exit, exit_quote_id)
+     SELECT ?1, ?2, ?3, ?4, ?5, 'sending', ?6, ?7, ?8, ?9, ?10, ?11, ?12
      WHERE (SELECT COALESCE(SUM(amount), 0) FROM deposits WHERE kind = 'goal' AND ref_id = ?2)
-         - (SELECT COALESCE(SUM(amount), 0) FROM withdrawals WHERE goal_id = ?2) = ?4`,
-    [id, goalId, user.address, balance, bonus, method, Date.now()],
+         - (SELECT COALESCE(SUM(amount), 0) FROM withdrawals WHERE goal_id = ?2) = ?4
+       AND EXISTS (SELECT 1 FROM goals WHERE id = ?2 AND status = 'open')
+       AND (?12 IS NULL OR EXISTS (SELECT 1 FROM goal_exit_quotes WHERE id = ?12 AND expires_at > ?7 AND unlock_at > ?7))`,
+    [id, goalId, user.address, balance, bonus, method, Date.now(), fee, quote?.fee_bps ?? 0, quote?.fee_basis ?? null, locked ? 1 : 0, quote?.id ?? null],
   )
-  if (claimed.rowsAffected === 0) throw new ApiError('This is already on its way')
+  if (claimed.rowsAffected === 0) throw new ApiError('Your balance or quote changed. Refresh before trying again.', 409)
   try {
-    const d = await deliver({ to: user, amount: balance + bonus, currency: goal.currency, memo: `cw:${goalId}`, method, bank, reference: `cw-${id}`, evmAddress })
+    const d = await deliver({ to: user, amount: net, currency: goal.currency, memo: `cw:${goalId}`, method, bank, reference: `cw-${id}`, evmAddress })
     await run('UPDATE withdrawals SET status = ?, tx_hash = ?, bank = ?, ngn = ?, provider_id = ? WHERE id = ?', [d.status, d.txHash, d.bank, d.ngn, d.providerId, id])
   } catch (err) {
     await run('DELETE FROM withdrawals WHERE id = ?', [id])
+    invalidateYield()
     throw err
   }
   if (goal.unlock_at) await run("UPDATE goals SET status = 'closed' WHERE id = ?", [goalId])
+  await run('DELETE FROM goal_exit_liquidity WHERE goal_id = ?', [goalId])
+  invalidateYield()
   return publicWithdrawal((await one<WithdrawalRow>('SELECT * FROM withdrawals WHERE id = ?', [id]))!, goal.currency)
 }
 
@@ -150,7 +220,9 @@ async function settle(w: WithdrawalRow) {
     // The provider refunded the pool: drop the withdrawal so the money is back in the goal.
     await run('DELETE FROM withdrawals WHERE id = ?', [w.id])
     await run("UPDATE goals SET status = 'open' WHERE id = ?", [w.goal_id])
+    invalidateYield()
     console.error('bank cash-out refunded', w.id)
+    return null
   }
   return w
 }
@@ -160,6 +232,11 @@ function publicWithdrawal(w: WithdrawalRow, currency: Currency) {
     id: w.id,
     amount: w.amount / UNIT[currency],
     bonus: w.bonus / UNIT[currency],
+    fee: w.fee / UNIT[currency],
+    net: (w.amount + w.bonus - w.fee) / UNIT[currency],
+    feeBps: w.fee_bps,
+    feeBasis: w.fee_basis,
+    earlyExit: Boolean(w.early_exit),
     currency,
     status: w.status,
     method: w.method,
@@ -173,8 +250,10 @@ function publicWithdrawal(w: WithdrawalRow, currency: Currency) {
 export type PublicWithdrawal = ReturnType<typeof publicWithdrawal>
 
 export async function goalView(user: User, goalId: string) {
+  const pending = await ownGoal(user, goalId)
+  await reconcileGoal(pending)
+  for (const w of await all<WithdrawalRow>("SELECT * FROM withdrawals WHERE goal_id = ? AND status = 'cashing'", [goalId])) await settle(w)
   const goal = await ownGoal(user, goalId)
-  await reconcileGoal(goal)
   const [{ balance, simulated }, deposits, withdrawals] = await Promise.all([
     balanceOf(goalId),
     all<{ tx_hash: string; address: string; amount: number; created_at: number }>("SELECT tx_hash, address, amount, created_at FROM deposits WHERE kind = 'goal' AND ref_id = ? ORDER BY created_at DESC", [goalId]),
@@ -196,9 +275,10 @@ export async function goalView(user: User, goalId: string) {
     earned: earned / unit,
     memo: memoFor(user, goalMemo(goal.id), goal.currency),
     minDeposit: MIN_DEPOSIT[goal.currency],
+    earlyExitPolicy: exitFeePolicy(),
     deposits: deposits.map((d) => ({ amount: d.amount / unit, at: d.created_at, simulated: isSimulated(d.tx_hash), from: sameAddress(d.address, goal.owner) ? null : nameOf(d.address) })),
     plan,
-    withdrawals: await Promise.all(withdrawals.map(async (w) => publicWithdrawal(await settle(w), goal.currency))),
+    withdrawals: withdrawals.map((w) => publicWithdrawal(w, goal.currency)),
   }
 }
 export type GoalView = Awaited<ReturnType<typeof goalView>>

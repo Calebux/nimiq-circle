@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, CalendarDots, Check, Copy, CurrencyDollar, Gift, Lo
 import Image from 'next/image'
 import Link from 'next/link'
 import { useState } from 'react'
+import { BreakLockSheet } from '@/components/break-lock'
 import { CashOutSheet, Sent, type BankChoice } from '@/components/cashout'
 import { Confetti } from '@/components/confetti'
 import { ManualCopy, useCopy } from '@/components/share'
@@ -11,7 +12,7 @@ import { SignedIn, Splash } from '@/components/gate'
 import { BackLink, BottomBar, PrimaryButton, Screen, SecondaryButton, Sheet, nim, shortDate, useCountUp } from '@/components/ui'
 import { Ngn, api, payoutTarget, useApi, usePayment } from '@/components/wallet'
 import { PRESETS } from '@/lib/currency'
-import type { GoalView, PublicWithdrawal } from '@/lib/goals'
+import type { GoalExitQuote, GoalView, PublicWithdrawal } from '@/lib/goals'
 import type { PlanCadence } from '@/lib/goal-plan'
 
 function JarCard({ goal }: { goal: GoalView }) {
@@ -34,7 +35,7 @@ function JarCard({ goal }: { goal: GoalView }) {
         )}
         <p className={`mt-4 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold ${goal.locked ? 'bg-lilac-soft text-lilac-ink' : 'bg-white text-ink'}`}>
           {goal.locked ? <LockSimple size={15} weight="bold" /> : <LockSimpleOpen size={15} weight="bold" />}
-          {goal.locked ? `Locked until ${shortDate(goal.unlockAt!)} · ${days} ${days === 1 ? 'day' : 'days'} to go` : goal.unlockAt ? 'Unlocked. It is all yours.' : 'Flexible: take it out any time'}
+          {goal.status === 'closed' ? 'Savings plan closed' : goal.locked ? `Locked until ${shortDate(goal.unlockAt!)} · ${days} ${days === 1 ? 'day' : 'days'} to go` : goal.unlockAt ? 'Unlocked. It is all yours.' : 'Flexible: take it out any time'}
         </p>
       </div>
     </section>
@@ -296,6 +297,10 @@ function InviteSheet({ goal, open, onOpenChange }: { goal: GoalView; open: boole
 }
 
 function Goal({ goal, reload }: { goal: GoalView; reload: () => void }) {
+  const [breaking, setBreaking] = useState(false)
+  const [quote, setQuote] = useState<GoalExitQuote | null>(null)
+  const [quoting, setQuoting] = useState(false)
+  const [quoteVersion, setQuoteVersion] = useState(0)
   const [adding, setAdding] = useState(false)
   const [planning, setPlanning] = useState(false)
   const [inviting, setInviting] = useState(false)
@@ -308,34 +313,52 @@ function Goal({ goal, reload }: { goal: GoalView; reload: () => void }) {
   // Celebrate the day a locked goal opens.
   const justUnlocked = Boolean(goal.unlockAt && !goal.locked && goal.balance > 0)
 
+  async function reviewBreak() {
+    setBreaking(true)
+    setQuoting(true)
+    setError(null)
+    setQuote(null)
+    setQuoteVersion((version) => version + 1)
+    try {
+      setQuote(await api<GoalExitQuote>(`/api/goals/${goal.id}/withdraw`, { body: { action: 'quote' } }))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      reload()
+    } finally {
+      setQuoting(false)
+    }
+  }
+
   async function withdraw(method: 'wallet' | 'bank', bank?: BankChoice) {
     setBusy(true)
     setError(null)
     try {
       const target = method === 'wallet' ? await payoutTarget(goal.currency) : {}
-      setSent(await api<PublicWithdrawal>(`/api/goals/${goal.id}/withdraw`, { body: { method, bank, ...target } }))
+      setSent(await api<PublicWithdrawal>(`/api/goals/${goal.id}/withdraw`, { body: { method, bank, ...target, earlyExitQuoteId: quote?.id } }))
       setWithdrawing(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
+      reload()
       if (method === 'bank') throw e
+    } finally {
+      setBusy(false)
     }
-    setBusy(false)
   }
 
   if (sent) return <SentWithdrawal w={sent} goalId={goal.id} />
 
   const history = [
-    ...goal.deposits.map((d) => ({ kind: 'in' as const, amount: d.amount, at: d.at, from: d.from })),
-    ...goal.withdrawals.map((w) => ({ kind: 'out' as const, amount: w.amount + w.bonus, at: w.createdAt, from: null })),
+    ...goal.deposits.map((d) => ({ kind: 'in' as const, amount: d.amount, fee: 0, earlyExit: false, at: d.at, from: d.from })),
+    ...goal.withdrawals.map((w) => ({ kind: 'out' as const, amount: w.net, fee: w.fee, earlyExit: w.earlyExit, at: w.createdAt, from: null })),
   ].sort((a, b) => b.at - a.at)
 
   return (
-    <Screen bar={goal.locked || goal.balance <= 0 ? true : 'tall'}>
+    <Screen bar={goal.balance > 0 ? 'tall' : true}>
       {justUnlocked && <Confetti />}
       <header className="flex items-center gap-3">
         <BackLink href="/" />
         <div className="min-w-0 flex-1">
-          <p className="text-sm text-ink-2">{goal.unlockAt ? 'Locked savings' : 'Savings'}</p>
+          <p className="text-sm text-ink-2">{goal.status === 'closed' ? 'Closed savings' : goal.unlockAt ? 'Locked savings' : 'Savings'}</p>
           <h1 className="truncate font-display text-[28px] font-extrabold leading-none tracking-tight">{goal.name}</h1>
         </div>
       </header>
@@ -398,8 +421,9 @@ function Goal({ goal, reload }: { goal: GoalView; reload: () => void }) {
                     {h.from ? <Gift size={18} weight="bold" /> : h.kind === 'in' ? <ArrowDown size={18} weight="bold" /> : <ArrowUp size={18} weight="bold" />}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold">{h.from ? `${h.from} chipped in` : h.kind === 'in' ? 'Added' : 'Taken out'}</p>
+                    <p className="truncate font-semibold">{h.from ? `${h.from} chipped in` : h.kind === 'in' ? 'Added' : h.earlyExit ? 'Lock broken · withdrawn' : 'Taken out'}</p>
                     <p className="text-sm text-ink-2">{shortDate(h.at)}</p>
+                    {h.earlyExit && <p className="text-xs text-coral-ink">Break fee: {nim(h.fee, goal.currency === 'USDT' ? 6 : 5)} {goal.currency}</p>}
                   </div>
                   <p className="font-display text-lg font-extrabold tabular-nums">
                     {h.kind === 'in' ? '+' : '-'}
@@ -416,12 +440,14 @@ function Goal({ goal, reload }: { goal: GoalView; reload: () => void }) {
       <BottomBar>
         {goal.status === 'open' && <PrimaryButton onClick={() => setAdding(true)}>Add money</PrimaryButton>}
         {goal.balance > 0 &&
-          (goal.locked ? (
+          (goal.locked ? goal.earlyExitPolicy ? (
+            <SecondaryButton onClick={reviewBreak}>Break lock early</SecondaryButton>
+          ) : (
             <p className="flex h-12 items-center justify-center gap-1.5 text-sm font-semibold text-lilac-ink">
               <LockSimple size={15} weight="bold" /> Opens {shortDate(goal.unlockAt!)}
             </p>
           ) : (
-            <SecondaryButton onClick={() => setWithdrawing(true)}>Take it out</SecondaryButton>
+            <SecondaryButton onClick={() => { setQuote(null); setWithdrawing(true) }}>Take it out</SecondaryButton>
           ))}
       </BottomBar>
 
@@ -439,7 +465,9 @@ function Goal({ goal, reload }: { goal: GoalView; reload: () => void }) {
           setCashing(true)
         }}
       />
-      <CashOutSheet open={cashing} onOpenChange={setCashing} amount={goal.balance + goal.earned} currency={goal.currency} onConfirm={(bank) => withdraw('bank', bank)} />
+      <BreakLockSheet key={quoteVersion} open={breaking} onOpenChange={setBreaking} quote={quote} loading={quoting} busy={busy} error={error}
+        onRefresh={reviewBreak} onWallet={() => withdraw('wallet')} onBank={() => { setBreaking(false); setCashing(true) }} />
+      <CashOutSheet open={cashing} onOpenChange={setCashing} amount={quote?.net ?? goal.balance + goal.earned} currency={goal.currency} onConfirm={(bank) => withdraw('bank', bank)} />
     </Screen>
   )
 }
@@ -447,10 +475,14 @@ function Goal({ goal, reload }: { goal: GoalView; reload: () => void }) {
 function SentWithdrawal({ w, goalId }: { w: PublicWithdrawal; goalId: string }) {
   const { data: goal } = useApi<GoalView>(`/api/goals/${goalId}`, w.status === 'cashing' ? 3000 : false)
   const current = goal?.withdrawals.find((x) => x.id === w.id) ?? w
+  if (goal && w.status === 'cashing' && !goal.withdrawals.some((x) => x.id === w.id)) return (
+    <Screen><BackLink href={`/g/${goalId}`} /><h1 className="mt-8 font-display text-2xl font-bold">Cash-out returned</h1><p className="mt-3 text-ink-2">Your savings are back in your plan. No break fee was charged.</p><PrimaryButton href={`/g/${goalId}`}>Back to savings</PrimaryButton></Screen>
+  )
   return (
     <Sent
       method={current.method}
-      amount={current.amount + current.bonus}
+      amount={current.net}
+      breakFee={current.earlyExit ? current.fee : undefined}
       currency={current.currency}
       ngn={current.ngn}
       bank={current.bank}

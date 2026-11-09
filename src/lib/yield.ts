@@ -13,21 +13,30 @@ let cached: { at: number; surplus: number; liabilities: number } | null = null
 const floatLuna = () => Math.round(Number(process.env.POOL_FLOAT_NIM ?? 0) * 100_000)
 
 /**
- * NIM owed to members: real deposits minus real money already sent back out. "Real" means it
- * involved a real wallet: test-wallet users are excluded by their user row, not by tx hashes.
+ * Member principal still owed: real deposits minus principal already paid back.
+ * Bonuses come from surplus. Test-wallet users are excluded by their user row.
  */
 async function liabilities(currency: Currency = 'NIM'): Promise<number> {
   const row = await one<{ owed: number }>(
     `SELECT
        (SELECT COALESCE(SUM(d.amount), 0) FROM deposits d JOIN users u ON u.address = d.address WHERE u.dev = 0 AND d.tx_hash NOT LIKE 'mock-%' AND d.currency = ?1)
-     - (SELECT COALESCE(SUM(p.pot + p.bonus), 0) FROM payouts p JOIN users u ON u.address = p.address JOIN circles c ON c.id = p.circle_id
+     - (SELECT COALESCE(SUM(p.pot), 0) FROM payouts p JOIN users u ON u.address = p.address JOIN circles c ON c.id = p.circle_id
          WHERE u.dev = 0 AND c.practice = 0 AND p.status IN ('sent', 'cashing', 'cashed') AND c.currency = ?1)
-     - (SELECT COALESCE(SUM(w.amount + w.bonus), 0) FROM withdrawals w JOIN users u ON u.address = w.address JOIN goals g ON g.id = w.goal_id
+     - (SELECT COALESCE(SUM(w.amount), 0) FROM withdrawals w JOIN users u ON u.address = w.address JOIN goals g ON g.id = w.goal_id
          WHERE u.dev = 0 AND w.status IN ('sent', 'cashing', 'cashed') AND g.currency = ?1)
      AS owed`,
     [currency],
   )
   return row?.owed ?? 0
+}
+
+/** Retained exit fees belong to the operator, never to the staking reward pool. */
+export async function collectedGoalFees(currency: Currency = 'NIM'): Promise<number> {
+  const row = await one<{ fees: number }>(`SELECT COALESCE(SUM(w.fee), 0) AS fees
+    FROM withdrawals w JOIN users u ON u.address = w.address JOIN goals g ON g.id = w.goal_id
+    WHERE u.dev = 0 AND COALESCE(w.tx_hash, '') NOT LIKE 'mock-%'
+      AND w.status IN ('sent', 'cashing', 'cashed') AND g.currency = ?`, [currency])
+  return row?.fees ?? 0
 }
 
 /**
@@ -42,7 +51,7 @@ async function poolSurplus() {
   const [liquid, staker, treasury] = await Promise.all([getBalance(pool), getStaker(pool), floatStatus()])
   const assets = liquid + (staker ? staker.balance + staker.inactiveBalance + staker.retiredBalance : 0)
   // NIM the treasury bought from cash-outs still sits in the pool but is ours, not members'.
-  const operator = floatLuna() + treasury.nimLunaReal
+  const operator = floatLuna() + treasury.nimLunaReal + await collectedGoalFees()
   cached = { at: Date.now(), surplus: Math.max(0, assets - owed - operator), liabilities: owed }
   return cached
 }
@@ -65,7 +74,7 @@ export async function reserves() {
   if (!pool) throw new Error('POOL_ADDRESS is not configured')
   const [liquid, staker, owed, treasury] = await Promise.all([getBalance(pool), getStaker(pool), liabilities(), floatStatus()])
   const staked = staker ? staker.balance + staker.inactiveBalance + staker.retiredBalance : 0
-  const operator = floatLuna() + treasury.nimLunaReal
+  const operator = floatLuna() + treasury.nimLunaReal + await collectedGoalFees()
   return {
     address: pool,
     validator: staker?.delegation ?? serverConfig().nim.validator,

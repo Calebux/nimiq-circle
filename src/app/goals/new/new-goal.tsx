@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { CurrencyPicker } from '@/components/currency'
 import { SignedIn } from '@/components/gate'
 import { BackLink, BottomBar, PrimaryButton, Screen, nim, shortDate } from '@/components/ui'
-import { Ngn, api } from '@/components/wallet'
+import { Ngn, api, useWallet } from '@/components/wallet'
 import { PRESETS, type Currency } from '@/lib/currency'
 import type { PlanCadence } from '@/lib/goal-plan'
 
@@ -54,6 +54,7 @@ function Pill({ selected, onClick, children }: { selected: boolean; onClick: () 
 
 function Form() {
   const router = useRouter()
+  const { earlyExitPolicy } = useWallet()
   const [now] = useState(() => Date.now())
   const presets = lockPresets(now)
   const [name, setName] = useState('')
@@ -212,7 +213,7 @@ function Form() {
           <div className="grid grid-cols-2 gap-2">
             {(
               [
-                { id: true, icon: LockSimple, title: 'Lock it', body: 'No withdrawals until the date. Future you will thank you.' },
+                { id: true, icon: LockSimple, title: 'Lock it', body: earlyExitPolicy ? `Free to withdraw on your date. Break early for ${earlyExitPolicy.bps / 100}% of ${earlyExitPolicy.basis === 'principal' ? 'savings only' : 'savings + rewards'}.` : 'No withdrawals until the date. Future you will thank you.' },
                 { id: false, icon: LockSimpleOpen, title: 'Flexible', body: 'Add or take out any time.' },
               ] as const
             ).map(({ id, icon: Icon, title, body }) => (

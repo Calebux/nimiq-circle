@@ -16,7 +16,7 @@ A savings circle (ajo / tanda / susu / chama) for Nimiq Pay: members contribute 
 | `/goals/new`, `/g/[id]` | Personal savings goal, flexible or locked until a date |
 | `/spike` | The pre-build checks below |
 
-**How money moves.** One pool wallet holds every circle and goal. Members pay it from Nimiq Pay with a memo (`cc:<circle>:<round>`, `cg:<goal>`); the server only counts a deposit once it is on chain, from the signed-in wallet, with the right memo and amount. Payouts and withdrawals are signed by the pool key on the server. Locked goals are enforced server-side. Idle NIM is staked; yield = what the pool really holds on chain minus what it owes minus `POOL_FLOAT_NIM`, shared by balance.
+**How money moves.** One pool wallet holds every circle and goal. Members pay it from Nimiq Pay with a memo (`cc:<circle>:<round>`, `cg:<goal>`); the server only counts a deposit once it is on chain, from the signed-in wallet, with the right memo and amount. Payouts and withdrawals are signed by the pool key on the server. Locked goals are enforced server-side. Optional early withdrawal requires a fee review and explicit confirmation, pays the full balance less the fee, and closes the plan. Set `GOAL_BREAK_FEE_BPS` (100 = 1%) and `GOAL_BREAK_FEE_BASIS` (`principal` or `total`) to enable it; unset means disabled. Fees remain operator-owned in the pool and are excluded from rewards. NIM wallet exits with insufficient liquidity reserve funds for the staking worker for 72 hours; the member must retry and accept a fresh quote when funds are available. Automatic unstaking requires the existing `AUTO_STAKE=on` worker configuration, otherwise the operator must supply liquidity. Idle NIM is staked; yield = what the pool really holds on chain minus what it owes minus `POOL_FLOAT_NIM`, shared by balance.
 
 **Cash-out (float model).** The provider only takes USDT, so the app sits in the middle. The cash-out sheet locks a quote for 90 s: NIM → USDT at the CoinGecko price minus `TREASURY_SPREAD_BPS`, then USDT → NGN at the provider's rate. On confirm, the treasury buys the member's NIM where it sits in the pool and the provider pays the bank from our prefunded USDT float, so no swap is in the member's path. Converting held NIM back to USDT happens in batches. Guards: quote expiry, one use per quote, owner and amount checks, per-payout and daily caps, a minimum, and "float too low" (the pot stays claimable). Every movement is a row in `treasury_ledger`.
 
@@ -84,3 +84,5 @@ src/app/spike.tsx           the three check cards
 ```
 
 MIT licensed.
+
+**Early-exit checks:** `npm test` uses Node 22+ with temporary SQLite databases and mocked payment/chain edges; it sends no transactions. Covers fees, authorization, quote expiry, concurrent confirmations, refunds, liquidity and reward accounting.

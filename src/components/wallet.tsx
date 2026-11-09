@@ -2,6 +2,7 @@
 
 import type { NimiqProvider } from '@nimiq/mini-app-sdk'
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import type { ExitFeePolicy } from '@/lib/goal-exit-policy'
 import { CADENCES, NGN_PER_NIM } from '@/lib/constants'
 import { UNIT, type Currency } from '@/lib/currency'
 import { describeEvmError, evmAccount, hasEvmWallet, sendUsdt } from '@/lib/evm/client'
@@ -26,6 +27,7 @@ interface Config {
   /** The provider's USDT → NGN, for estimates. */
   ngnPerUsdt: number | null
   /** Round lengths the server accepts (adds a 10-minute one in demo mode). */
+  earlyExitPolicy: ExitFeePolicy | null
   cadences: string[]
 }
 
@@ -38,6 +40,7 @@ interface Wallet {
   devWallet: boolean
   /** Live NGN per unit of each currency, for estimates. */
   ngnPer: Record<Currency, number>
+  earlyExitPolicy: ExitFeePolicy | null
   cadences: string[]
   error: string | null
   /** Resolves true once signed in; false if cancelled or failed (the error is in `error`). */
@@ -179,7 +182,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <WalletContext.Provider
-      value={{ phase, me, inNimiqPay: Boolean(nimiq), devWallet: Boolean(config?.devWallet), ngnPer: { NIM: config?.ngnPerNim ?? NGN_PER_NIM, USDT: config?.ngnPerUsdt ?? NGN_PER_USDT }, cadences: config?.cadences ?? [...CADENCES], error, signIn, signOut, setMe, pay }}
+      value={{ earlyExitPolicy: config?.earlyExitPolicy ?? null, phase, me, inNimiqPay: Boolean(nimiq), devWallet: Boolean(config?.devWallet), ngnPer: { NIM: config?.ngnPerNim ?? NGN_PER_NIM, USDT: config?.ngnPerUsdt ?? NGN_PER_USDT }, cadences: config?.cadences ?? [...CADENCES], error, signIn, signOut, setMe, pay }}
     >
       {children}
     </WalletContext.Provider>

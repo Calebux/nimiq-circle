@@ -268,6 +268,7 @@ export function CashOutSheet({
 
 /** After money leaves the pool: where it went and whether it has landed. */
 export function Sent({
+  breakFee,
   method,
   amount,
   currency,
@@ -278,6 +279,7 @@ export function Sent({
   backHref,
   backLabel,
 }: {
+  breakFee?: number
   method: 'wallet' | 'bank'
   amount: number
   currency: Currency
@@ -304,6 +306,7 @@ export function Sent({
         <p className="mt-1 font-display text-[44px] font-extrabold leading-none tracking-tight tabular-nums text-coral-ink">
           {method === 'bank' && ngn !== null ? naira(ngn) : `${nim(amount, 2)} ${currency}`}
         </p>
+        {breakFee !== undefined && <p className="mt-2 text-sm text-ink-2">After a break fee of {nim(breakFee, currency === 'USDT' ? 6 : 5)} {currency}. Your savings plan is closed.</p>}
         {bank && <p className="mt-2 text-ink-2">to {bank.split(' · ')[1] ?? bank}</p>}
         {simulated && <p className="mt-2 text-xs text-ink-2">Practice: nothing moved on chain or to a bank.</p>}
       </div>
